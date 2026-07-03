@@ -1,0 +1,2227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3vs3 ポケモン風対戦ゲーム (本格環境)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DotGothic16&display=swap');
+        body { font-family: 'DotGothic16', sans-serif; background-color: #111827; color: #ffffff; user-select: none; overflow-x: hidden; }
+        .game-window { border: 4px solid #fff; border-radius: 8px; background-color: #000; padding: 0.75rem; margin-bottom: 0.5rem; }
+        .btn-command { border: 2px solid #fff; background-color: #000; color: #fff; cursor: pointer; transition: all 0.2s; border-radius: 4px; text-align: center; }
+        .btn-command:hover:not(:disabled) { background-color: #333; }
+        .btn-command:disabled { border-color: #666; color: #666; cursor: not-allowed; background-color: #111; }
+        .health-bar-container { width: 100%; background-color: #333; border: 1px solid #fff; height: 10px; margin-top: 2px; }
+        .health-bar { height: 100%; background-color: #4ade80; transition: width 0.3s ease-in-out, background-color 0.3s; }
+        .enemy-shake { animation: shake 0.4s; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25%, 75% { transform: translateX(-8px); } 50% { transform: translateX(8px); } }
+        .damage-text { position: absolute; color: #ef4444; font-size: 1.5rem; font-weight: bold; animation: float-up 1s ease-out forwards; pointer-events: none; text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; z-index: 10; }
+        .heal-text { color: #4ade80; }
+        @keyframes float-up { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-40px); opacity: 0; } }
+        #log-container { height: 110px; overflow-y: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+        .log-line { margin: 1px 0; animation: fade-in 0.2s; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #888; }
+    </style>
+</head>
+<body class="min-h-screen w-screen flex items-center justify-center p-2">
+
+    <!-- モード選択画面 -->
+    <div id="screen-mode" class="max-w-md w-full flex flex-col gap-6 text-center h-full justify-center py-10">
+        <h1 class="text-3xl md:text-4xl text-yellow-300 font-bold mb-8 tracking-widest leading-tight">ポケモン風<br>対戦ゲーム</h1>
+        <button class="btn-command py-4 text-xl font-bold bg-blue-900 border-blue-400 hover:bg-blue-700" onclick="selectGameMode('pve')">1人で遊ぶ (VS AI)</button>
+        <button class="btn-command py-4 text-xl font-bold bg-red-900 border-red-400 hover:bg-red-700" onclick="selectGameMode('pvp')">2人で遊ぶ (PVP)</button>
+        <p class="text-gray-400 text-sm mt-4">※2人対戦は1台の画面を交互に操作して遊びます。</p>
+    </div>
+
+    <!-- ポケモン選択登録画面 (6匹) -->
+    <div id="screen-select" class="max-w-6xl w-full flex flex-col gap-4 text-center max-h-[90vh] overflow-y-auto pb-8 hidden px-2">
+        <div class="sticky top-0 bg-gray-900 py-3 z-20 border-b border-gray-700">
+            <div class="flex justify-between items-center px-4">
+                <h1 id="select-title" class="text-xl md:text-2xl text-yellow-300 font-bold tracking-widest">てもち と 特性・もちもの を えらぼう！</h1>
+                <button class="px-3 py-1 bg-red-900 border border-red-500 rounded text-xs hover:bg-red-800" onclick="returnToTitle()">タイトルへ</button>
+            </div>
+            <p id="select-subtitle" class="text-gray-300 text-sm md:text-base mt-1">バトルに連れていく 6匹を 登録しよう！</p>
+            <div id="selected-status" class="text-lg text-green-400 font-bold mt-2 h-6">
+                あと 6びき えらべるぞ
+            </div>
+        </div>
+        
+        <div id="selected-pokemon-area" class="grid grid-cols-1 md:grid-cols-3 gap-2 justify-center mb-2 w-full px-2"></div>
+        
+        <div id="pokemon-list" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-2 px-2 pb-16"></div>
+
+        <button id="btn-start" class="btn-command py-4 hidden text-xl font-bold bg-blue-700 border-blue-400 sticky bottom-2 w-full max-w-md mx-auto shadow-lg z-20" onclick="confirmSelection()">登録完了！</button>
+    </div>
+
+    <!-- 見せ合い・3匹選出画面 -->
+    <div id="screen-showdown" class="max-w-4xl w-full flex flex-col gap-4 text-center max-h-[90vh] overflow-y-auto pb-8 hidden px-2">
+        <div class="sticky top-0 bg-gray-900 py-3 z-20 border-b border-gray-700">
+            <h1 id="showdown-title" class="text-xl md:text-2xl text-yellow-300 font-bold tracking-widest">3びき を せんしゅつ しよう！</h1>
+            <p id="showdown-subtitle" class="text-gray-300 text-sm md:text-base mt-1">選んだ順番でバトルに登場するぞ！</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
+            <!-- 自分（1P）の6匹 -->
+            <div class="bg-gray-800 p-4 rounded border border-blue-500">
+                <h2 id="showdown-player-label" class="text-lg font-bold text-blue-300 mb-2">あなた の 6ひき</h2>
+                <div id="showdown-player-list" class="flex flex-col gap-2"></div>
+            </div>
+            <!-- 相手（2P/AI）の6匹 -->
+            <div class="bg-gray-800 p-4 rounded border border-red-500">
+                <h2 id="showdown-enemy-label" class="text-lg font-bold text-red-300 mb-2">あいて の 6ひき</h2>
+                <p class="text-xs text-gray-400 mb-2">※ポケモン名とタイプのみ表示されます</p>
+                <div id="showdown-enemy-list" class="flex flex-col gap-2 text-left"></div>
+            </div>
+        </div>
+
+        <div class="mt-4 flex flex-col items-center gap-2">
+            <div id="showdown-selected-status" class="text-lg text-green-400 font-bold h-6">
+                バトルに出す順に3匹選んでね！
+            </div>
+            <button id="btn-showdown-confirm" class="btn-command py-4 w-full max-w-md bg-green-700 border-green-400 font-bold text-xl hidden" onclick="confirmShowdownSelection()">バトル開始！</button>
+        </div>
+    </div>
+
+    <!-- バトル画面 -->
+    <div id="screen-battle" class="max-w-md w-full flex flex-col gap-2 hidden h-full max-h-[800px] justify-center relative">
+        
+        <div id="turn-indicator" class="text-center font-bold text-lg mb-1 py-1 rounded bg-gray-800 border border-gray-600 hidden"></div>
+        <div id="field-status" class="text-center text-xs font-bold mt-1 text-yellow-200 min-h-[1rem]"></div>
+
+        <div class="flex justify-between w-full px-2 mt-1 text-xs bg-gray-900 rounded border border-gray-700 py-1.5 items-center">
+            <div class="flex items-center gap-1.5">
+                <span id="label-p1" class="text-blue-300 font-bold">1P (あなた)</span>
+                <span id="player-party-icons" class="tracking-widest">🔴🔴🔴</span>
+            </div>
+            <button class="px-2 py-0.5 bg-red-900/80 border border-red-500 rounded text-[10px] hover:bg-red-800 text-red-200 font-bold" onclick="returnToTitleWithConfirm()">あきらめる</button>
+            <div class="flex items-center gap-1.5">
+                <span id="enemy-party-icons" class="tracking-widest">🔴🔴🔴</span>
+                <span id="label-p2" class="text-red-300 font-bold">CPU (あいて)</span>
+            </div>
+        </div>
+
+        <!-- 相手エリア -->
+        <div class="game-window flex flex-col items-center justify-center relative min-h-[160px]">
+            <h2 id="enemy-name" class="text-lg mb-1">---</h2>
+            <div class="text-[10px] md:text-xs text-gray-400 mb-1 flex flex-wrap gap-2 justify-center">
+                <span id="enemy-type">タイプ: ---</span>
+                <span id="enemy-ability" class="text-yellow-200">特性: ---</span>
+                <span id="enemy-item" class="text-green-300">持物: ---</span>
+            </div>
+            <div class="w-48 mb-2">
+                <div class="flex justify-between text-xs">
+                    <span>HP</span>
+                    <span id="enemy-hp-text">-- / --</span>
+                </div>
+                <div class="health-bar-container relative">
+                    <div id="enemy-hp-bar" class="health-bar" style="width: 100%;"></div>
+                </div>
+            </div>
+            <div id="enemy-status" class="flex flex-wrap gap-1 justify-center min-h-[1rem] text-[10px] font-bold mb-1"></div>
+            <div id="enemy-sprite" class="text-5xl md:text-6xl relative">❓</div>
+        </div>
+
+        <div class="game-window">
+            <div id="log-container" class="text-sm md:text-base leading-relaxed"></div>
+        </div>
+
+        <!-- 自分エリア -->
+        <div class="flex flex-col gap-2">
+            <div class="game-window flex flex-col justify-center">
+                <h3 id="player-name" class="text-lg mb-1">---</h3>
+                <div class="text-[10px] md:text-xs text-gray-400 mb-1 flex flex-wrap gap-2">
+                    <span id="player-type">タイプ: ---</span>
+                    <span id="player-ability" class="text-yellow-200">特性: ---</span>
+                    <span id="player-item" class="text-green-300">持物: ---</span>
+                </div>
+                <div class="mb-1">
+                    <div class="flex justify-between text-xs">
+                        <span>HP</span>
+                        <span id="player-hp-text">-- / --</span>
+                    </div>
+                    <div class="health-bar-container relative">
+                        <div id="player-hp-bar" class="health-bar" style="width: 100%;"></div>
+                    </div>
+                </div>
+                <div id="player-status" class="flex flex-wrap gap-1 min-h-[1rem] text-[10px] font-bold mt-1"></div>
+            </div>
+
+            <!-- コマンド入力エリア -->
+            <div class="game-window flex flex-col p-2 h-36 relative">
+                <div class="mb-2 flex justify-between items-center">
+                    <span class="text-sm">わざ・こうたい</span>
+                    <div class="flex gap-2">
+                        <label class="flex items-center space-x-1 text-purple-300 cursor-pointer bg-gray-800 px-2 py-1 rounded border border-purple-600">
+                            <input type="checkbox" id="chk-mega" class="form-checkbox h-3 w-3 text-purple-500">
+                            <span class="text-[10px] font-bold" id="mega-label">🌀 メガ</span>
+                        </label>
+                        <label class="flex items-center space-x-1 text-yellow-300 cursor-pointer bg-gray-800 px-2 py-1 rounded border border-yellow-600">
+                            <input type="checkbox" id="chk-tera" class="form-checkbox h-3 w-3 text-yellow-500">
+                            <span class="text-[10px] font-bold" id="tera-label">💎 テラ</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="flex gap-2 h-full">
+                    <div class="grid grid-cols-2 gap-2 flex-grow">
+                        <button id="btn-move0" class="btn-command flex flex-col justify-center items-center text-[10px] md:text-sm p-1 leading-tight" onclick="executeTurnInput('move', 0)"></button>
+                        <button id="btn-move1" class="btn-command flex flex-col justify-center items-center text-[10px] md:text-sm p-1 leading-tight" onclick="executeTurnInput('move', 1)"></button>
+                        <button id="btn-move2" class="btn-command flex flex-col justify-center items-center text-[10px] md:text-sm p-1 leading-tight" onclick="executeTurnInput('move', 2)"></button>
+                        <button id="btn-move3" class="btn-command flex flex-col justify-center items-center text-[10px] md:text-sm p-1 leading-tight" onclick="executeTurnInput('move', 3)"></button>
+                    </div>
+                    <button id="btn-switch" class="btn-command text-[11px] md:text-sm p-1 w-12 md:w-16 bg-blue-900 border-blue-400 font-bold" onclick="promptManualSwitch(currentTurnPlayer)">交代</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex gap-2 mt-2">
+            <button id="btn-rematch" class="btn-command py-3 flex-1 text-center justify-center bg-green-900 border-green-400 hidden" onclick="rematch()">同じパーティで再戦</button>
+            <button id="btn-restart" class="btn-command py-3 flex-1 text-center justify-center bg-blue-900 border-blue-400 hidden" onclick="returnToTitle()">最初から</button>
+        </div>
+
+        <!-- 交代用モーダル -->
+        <div id="switch-modal" class="hidden absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4 rounded-lg">
+            <div class="w-full max-w-sm flex flex-col gap-2">
+                <h3 id="switch-modal-title" class="text-center text-yellow-300 font-bold mb-2">交代するポケモンをえらぶ</h3>
+                <div id="switch-list" class="flex flex-col gap-2"></div>
+                <button id="btn-cancel-switch" class="btn-command mt-2 bg-gray-700" onclick="closeSwitchModal()">キャンセル</button>
+            </div>
+        </div>
+
+        <!-- あきらめる確認モーダル -->
+        <div id="confirm-modal" class="hidden absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4 rounded-lg">
+            <div class="w-full max-w-sm flex flex-col gap-4 bg-gray-800 border-4 border-red-900 p-6 rounded-xl shadow-2xl">
+                <h3 class="text-center text-red-400 font-bold text-lg mb-2">たいせんを ちゅうだんして<br>タイトルへ もどりますか？</h3>
+                <div class="flex justify-center gap-4">
+                    <button class="btn-command flex-1 py-3 bg-red-900 hover:bg-red-700 text-lg font-bold" onclick="confirmReturnToTitle(true)">はい</button>
+                    <button class="btn-command flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-lg font-bold" onclick="confirmReturnToTitle(false)">いいえ</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const TYPES = ["無", "炎", "水", "草", "電", "氷", "闘", "毒", "地", "飛", "超", "虫", "岩", "霊", "竜", "悪", "鋼", "妖"];
+        
+        const effectiveness = {
+            "無": { "岩": 0.5, "霊": 0, "鋼": 0.5 },
+            "炎": { "炎": 0.5, "水": 0.5, "草": 2.0, "氷": 2.0, "虫": 2.0, "岩": 0.5, "竜": 0.5, "鋼": 2.0 },
+            "水": { "炎": 2.0, "水": 0.5, "草": 0.5, "地": 2.0, "岩": 2.0, "竜": 0.5 },
+            "草": { "炎": 0.5, "水": 2.0, "草": 0.5, "毒": 0.5, "地": 2.0, "飛": 0.5, "虫": 0.5, "岩": 2.0, "竜": 0.5, "鋼": 0.5 },
+            "電": { "水": 2.0, "草": 0.5, "電": 0.5, "地": 0, "飛": 2.0, "竜": 0.5 },
+            "氷": { "炎": 0.5, "水": 0.5, "草": 2.0, "氷": 0.5, "地": 2.0, "飛": 2.0, "竜": 2.0, "鋼": 0.5 },
+            "闘": { "無": 2.0, "氷": 2.0, "毒": 0.5, "飛": 0.5, "超": 0.5, "虫": 0.5, "岩": 2.0, "霊": 0, "悪": 2.0, "鋼": 2.0, "妖": 0.5 },
+            "毒": { "草": 2.0, "毒": 0.5, "地": 0.5, "岩": 0.5, "霊": 0.5, "鋼": 0, "妖": 2.0 },
+            "地": { "炎": 2.0, "電": 2.0, "草": 0.5, "毒": 2.0, "飛": 0, "虫": 0.5, "岩": 2.0, "鋼": 2.0 },
+            "飛": { "草": 2.0, "電": 0.5, "闘": 2.0, "虫": 2.0, "岩": 0.5, "鋼": 0.5 },
+            "超": { "闘": 2.0, "毒": 2.0, "超": 0.5, "悪": 0, "鋼": 0.5 },
+            "虫": { "炎": 0.5, "草": 2.0, "闘": 0.5, "毒": 0.5, "飛": 0.5, "超": 2.0, "霊": 0.5, "悪": 2.0, "鋼": 0.5, "妖": 0.5 },
+            "岩": { "炎": 2.0, "氷": 2.0, "闘": 0.5, "地": 0.5, "飛": 2.0, "虫": 2.0, "鋼": 0.5 },
+            "霊": { "無": 0, "超": 2.0, "霊": 2.0, "悪": 0.5 },
+            "竜": { "鋼": 0.5, "竜": 2.0, "妖": 0 },
+            "悪": { "闘": 0.5, "超": 2.0, "霊": 2.0, "悪": 0.5, "妖": 0.5 },
+            "鋼": { "炎": 0.5, "水": 0.5, "電": 0.5, "氷": 2.0, "岩": 2.0, "鋼": 0.5, "妖": 2.0 },
+            "妖": { "炎": 0.5, "闘": 2.0, "毒": 0.5, "竜": 2.0, "悪": 2.0, "鋼": 0.5 }
+        };
+
+        const ITEM_LIST = [
+            "なし", "きあいのタスキ", "いのちのたま", "たべのこし", "ゴツゴツメット", 
+            "オボンのみ", "とつげきチョッキ", "ブーストエナジー", "あつぞこブーツ", 
+            "こだわりハチマキ", "こだわりメガネ", "こだわりスカーフ", "じゃくてんほけん", 
+            "クリアアミュレット", "ラムのみ", "かえんだま", "メンタルハーブ", "くろいヘドロ",
+            "でんきだま", "しんかのきせき", "いかさまダイス", "しめったいわ",
+            "リザードナイトX", "ルカリオナイト", "ボーマンダナイト",
+            "フシギバナイト", "カメックスナイト", "ゲンガナイト",
+            "ハッサムナイト", "ガブリアスナイト", "バンギラスナイト",
+            "サーナイトナイト", "メタグロスナイト", "クチートナイト",
+            "バシャーモナイト", "ギャラドスナイト", "ミミロップナイト",
+            "ムクホークナイト", "ライチュウナイトX", "ライチュウナイトY", "ラグラージナイト"
+        ];
+
+        const megaStoneMap = {
+            "リザードン": "リザードナイトX", "ルカリオ": "ルカリオナイト", "ボーマンダ": "ボーマンダナイト",
+            "フシギバナ": "フシギバナイト", "カメックス": "カメックスナイト", "ゲンガー": "ゲンガナイト",
+            "ハッサム": "ハッサムナイト", "ガブリアス": "ガブリアスナイト", "バンギラス": "バンギラスナイト",
+            "サーナイト": "サーナイトナイト", "メタグロス": "メタグロスナイト", "クチート": "クチートナイト",
+            "バシャーモ(アタッカー)": "バシャーモナイト", "バシャーモ(バトン)": "バシャーモナイト", 
+            "ギャラドス": "ギャラドスナイト", "ミミロップ": "ミミロップナイト",
+            "ムクホーク(炎技)": "ムクホークナイト", 
+            "ライチュウ(物理)": "ライチュウナイトX", "ライチュウ(特殊)": "ライチュウナイトY",
+            "ラグラージ": "ラグラージナイト"
+        };
+
+        const moveData = {
+            "まもる": { name: "まもる", type: "無", cat: "変化", power: 0, priority: 4, effect: "protect" },
+            "ねこだまし": { name: "ねこだまし", type: "無", cat: "物理", power: 40, priority: 3, effect: "fake_out" },
+            "たきのぼり": { name: "たきのぼり", type: "水", cat: "物理", power: 80, priority: 0, effect: "flinch_20" },
+            "おんがえし": { name: "おんがえし", type: "無", cat: "物理", power: 102, priority: 0 },
+            "しんそく": { name: "しんそく", type: "無", cat: "物理", power: 80, priority: 2 },
+            "じしん": { name: "じしん", type: "地", cat: "物理", power: 100, priority: 0 },
+            "げきりん": { name: "げきりん", type: "竜", cat: "物理", power: 120, priority: 0 },
+            "アイアンヘッド": { name: "アイアンヘッド", type: "鋼", cat: "物理", power: 80, priority: 0 },
+            "ムーンフォース": { name: "ムーンフォース", type: "妖", cat: "特殊", power: 95, priority: 0 },
+            "シャドーボール": { name: "シャドーボール", type: "霊", cat: "特殊", power: 80, priority: 0 },
+            "１０まんボルト": { name: "１０まんボルト", type: "電", cat: "特殊", power: 90, priority: 0 },
+            "ゴールドラッシュ": { name: "ゴールドラッシュ", type: "鋼", cat: "特殊", power: 120, priority: 0, effect: "c_down_1" },
+            "つららおとし": { name: "つららおとし", type: "氷", cat: "物理", power: 85, priority: 0, highCrit: true },
+            "かみくだく": { name: "かみくだく", type: "悪", cat: "物理", power: 80, priority: 0 },
+            "ふいうち": { name: "ふいうち", type: "悪", cat: "物理", power: 70, priority: 1 },
+            "フレアドライブ": { name: "フレアドライブ", type: "炎", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "ツタこんぼう": { name: "ツタこんぼう", type: "炎", cat: "物理", power: 100, priority: 0, highCrit: true },
+            "ウッドホーン": { name: "ウッドホーン", type: "草", cat: "物理", power: 75, priority: 0, effect: "heal_drain" },
+            "かえんほうしゃ": { name: "かえんほうしゃ", type: "炎", cat: "特殊", power: 90, priority: 0 },
+            "ストーンエッジ": { name: "ストーンエッジ", type: "岩", cat: "物理", power: 100, priority: 0, highCrit: true },
+            "バレットパンチ": { name: "バレットパンチ", type: "鋼", cat: "物理", power: 40, priority: 1 },
+            "ハイドロポンプ": { name: "ハイドロポンプ", type: "水", cat: "特殊", power: 110, priority: 0 },
+            "れいとうビーム": { name: "れいとうビーム", type: "氷", cat: "特殊", power: 90, priority: 0 },
+            "じゃれつく": { name: "じゃれつく", type: "妖", cat: "物理", power: 90, priority: 0 },
+            "かげうち": { name: "かげうち", type: "霊", cat: "物理", power: 40, priority: 1 },
+            "ソウルクラッシュ": { name: "ソウルクラッシュ", type: "妖", cat: "物理", power: 75, priority: 0, effect: "c_down_1_enemy" },
+            "デカハンマー": { name: "デカハンマー", type: "鋼", cat: "物理", power: 160, priority: 0 },
+            "がんせきふうじ": { name: "がんせきふうじ", type: "岩", cat: "物理", power: 60, priority: 0, effect: "s_down_1_enemy" },
+            "こおりのキバ": { name: "こおりのキバ", type: "氷", cat: "物理", power: 65, priority: 0 },
+            "せいなるつるぎ": { name: "せいなるつるぎ", type: "闘", cat: "物理", power: 90, priority: 0 },
+            "インファイト": { name: "インファイト", type: "闘", cat: "物理", power: 120, priority: 0, effect: "ab_down_1" },
+            "はたきおとす": { name: "はたきおとす", type: "悪", cat: "物理", power: 65, priority: 0 },
+            "フリーズドライ": { name: "フリーズドライ", type: "氷", cat: "特殊", power: 70, priority: 0 },
+            "ブラッドムーン": { name: "ブラッドムーン", type: "無", cat: "特殊", power: 140, priority: 0 },
+            "だいちのちから": { name: "だいちのちから", type: "地", cat: "特殊", power: 90, priority: 0 },
+            "しんくうは": { name: "しんくうは", type: "闘", cat: "特殊", power: 40, priority: 1 },
+            "ハイパーボイス": { name: "ハイパーボイス", type: "無", cat: "特殊", power: 90, priority: 0 },
+            "カタストロフィ": { name: "カタストロフィ", type: "悪", cat: "特殊", power: 0, priority: 0, effect: "halve_hp" },
+            "ヘビーボンバー": { name: "ヘビーボンバー", type: "鋼", cat: "物理", power: 100, priority: 0 },
+            "ドラゴンアロー": { name: "ドラゴンアロー", type: "竜", cat: "物理", power: 100, priority: 0 },
+            "ゴーストダイブ": { name: "ゴーストダイブ", type: "霊", cat: "物理", power: 90, priority: 0 },
+            "かえんボール": { name: "かえんボール", type: "炎", cat: "物理", power: 120, priority: 0 },
+            "とびひざげり": { name: "とびひざげり", type: "闘", cat: "物理", power: 130, priority: 0, effect: "recoil_miss" },
+            "でんこうせっか": { name: "でんこうせっか", type: "無", cat: "物理", power: 40, priority: 1 },
+            "れいとうパンチ": { name: "れいとうパンチ", type: "氷", cat: "物理", power: 75, priority: 0 },
+            "シャドークロー": { name: "シャドークロー", type: "霊", cat: "物理", power: 70, priority: 0, highCrit: true },
+            "りゅうせいぐん": { name: "りゅうせいぐん", type: "竜", cat: "特殊", power: 130, priority: 0, effect: "c_down_2" },
+            "マジカルフレイム": { name: "マジカルフレイム", type: "炎", cat: "特殊", power: 65, priority: 0 },
+            "トリックフラワー": { name: "トリックフラワー", type: "草", cat: "物理", power: 70, priority: 0, crit: true },
+            "フレアソング": { name: "フレアソング", type: "炎", cat: "特殊", power: 80, priority: 0, effect: "c_up_1" },
+            "オーバーヒート": { name: "オーバーヒート", type: "炎", cat: "特殊", power: 130, priority: 0, effect: "c_down_2" },
+            "あくのはどう": { name: "あくのはどう", type: "悪", cat: "特殊", power: 80, priority: 0 },
+            "サイコキネシス": { name: "サイコキネシス", type: "超", cat: "特殊", power: 90, priority: 0 },
+            "マッハパンチ": { name: "マッハパンチ", type: "闘", cat: "物理", power: 40, priority: 1 },
+            "ウェーブタックル": { name: "ウェーブタックル", type: "水", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "ゆきなだれ": { name: "ゆきなだれ", type: "氷", cat: "物理", power: 60, priority: -4 },
+            "アクロバット": { name: "アクロバット", type: "飛", cat: "物理", power: 110, priority: 0 }, 
+            "ぼうふう": { name: "ぼうふう", type: "飛", cat: "特殊", power: 110, priority: 0 },
+            "あんこくきょうだ": { name: "あんこくきょうだ", type: "悪", cat: "物理", power: 75, priority: 0, crit: true },
+            "ドゲザン": { name: "ドゲザン", type: "悪", cat: "物理", power: 85, priority: 0 },
+            "ドレインパンチ": { name: "ドレインパンチ", type: "闘", cat: "物理", power: 75, priority: 0, effect: "heal_drain" },
+            "かみなりパンチ": { name: "かみなりパンチ", type: "電", cat: "物理", power: 75, priority: 0 },
+            "ジェットパンチ": { name: "ジェットパンチ", type: "水", cat: "物理", power: 60, priority: 1 },
+            "かわらわり": { name: "かわらわり", type: "闘", cat: "物理", power: 75, priority: 0 },
+            "アクアブレイク": { name: "アクアブレイク", type: "水", cat: "物理", power: 85, priority: 0 },
+            "ばかぢから": { name: "ばかぢから", type: "闘", cat: "物理", power: 120, priority: 0, effect: "ab_down_1" },
+            "ブレイブバード": { name: "ブレイブバード", type: "飛", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "ボディプレス": { name: "ボディプレス", type: "闘", cat: "物理", power: 80, priority: 0 },
+            "ふんどのこぶし": { name: "ふんどのこぶし", type: "霊", cat: "物理", power: 100, priority: 0 },
+            "しおづけ": { name: "しおづけ", type: "岩", cat: "物理", power: 40, priority: 0, effect: "salt_cure" },
+            "きょけんとつげき": { name: "きょけんとつげき", type: "竜", cat: "物理", power: 120, priority: 0 },
+            "すてみタックル": { name: "すてみタックル", type: "無", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "がむしゃら": { name: "がむしゃら", type: "無", cat: "物理", power: 0, priority: 0, effect: "endeavor" },
+            "ヘドロばくだん": { name: "ヘドロばくだん", type: "毒", cat: "特殊", power: 90, priority: 0 },
+            "マジカルシャイン": { name: "マジカルシャイン", type: "妖", cat: "特殊", power: 80, priority: 0 },
+            "ジャイロボール": { name: "ジャイロボール", type: "鋼", cat: "物理", power: 80, priority: 0 },
+            "パワーウィップ": { name: "パワーウィップ", type: "草", cat: "物理", power: 120, priority: 0 },
+            "みずしゅりけん": { name: "みずしゅりけん", type: "水", cat: "特殊", power: 20, priority: 1, multiHit: { min: 2, max: 5 } },
+            "ほのおのまい": { name: "ほのおのまい", type: "炎", cat: "特殊", power: 80, priority: 0, effect: "c_up_1" },
+            "むしのさざめき": { name: "むしのさざめき", type: "虫", cat: "特殊", power: 90, priority: 0 },
+            "ギガドレイン": { name: "ギガドレイン", type: "草", cat: "特殊", power: 75, priority: 0, effect: "heal_drain" },
+            "コメットパンチ": { name: "コメットパンチ", type: "鋼", cat: "物理", power: 90, priority: 0, effect: "a_up_1_20" },
+            "エアスラッシュ": { name: "エアスラッシュ", type: "飛", cat: "特殊", power: 75, priority: 0 },
+            "グラススライダー": { name: "グラススライダー", type: "草", cat: "物理", power: 70, priority: 1 },
+            "ウッドハンマー": { name: "ウッドハンマー", type: "草", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "からげんき": { name: "からげんき", type: "無", cat: "物理", power: 70, priority: 0 },
+            "エナジーボール": { name: "エナジーボール", type: "草", cat: "特殊", power: 90, priority: 0 },
+            "アイアンテール": { name: "アイアンテール", type: "鋼", cat: "物理", power: 100, priority: 0 },
+            "かみなり": { name: "かみなり", type: "電", cat: "特殊", power: 110, priority: 0 },
+            "ほのおのパンチ": { name: "ほのおのパンチ", type: "炎", cat: "物理", power: 75, priority: 0 },
+            "ロケットずつき": { name: "ロケットずつき", type: "無", cat: "物理", power: 130, priority: 0, effect: "b_up_1" },
+            "リーフストーム": { name: "リーフストーム", type: "草", cat: "特殊", power: 130, priority: 0, effect: "c_down_2" },
+            "ほうでん": { name: "ほうでん", type: "電", cat: "特殊", power: 80, priority: 0, effect: "paralyze_30" },
+            "ラスターカノン": { name: "ラスターカノン", type: "鋼", cat: "特殊", power: 80, priority: 0 },
+            "トライアタック": { name: "トライアタック", type: "無", cat: "特殊", power: 80, priority: 0, effect: "tri_status" },
+            "ルミナコリジョン": { name: "ルミナコリジョン", type: "超", cat: "特殊", power: 80, priority: 0, effect: "d_down_2_enemy" },
+            "アシストパワー": { name: "アシストパワー", type: "超", cat: "特殊", power: 20, priority: 0, effect: "stored_power" },
+            "ブレイズキック": { name: "ブレイズキック", type: "炎", cat: "物理", power: 85, priority: 0, highCrit: true },
+            "フェイタルクロー": { name: "フェイタルクロー", type: "毒", cat: "物理", power: 75, priority: 0, effect: "fatal_claw" },
+            "うらみつらみ": { name: "うらみつらみ", type: "霊", cat: "特殊", power: 75, priority: 0, effect: "s_down_1_enemy" },
+            "ひけん・ちえなみ": { name: "ひけん・ちえなみ", type: "悪", cat: "物理", power: 65, priority: 0, effect: "stealthRock_attack" },
+            "アクアカッター": { name: "アクアカッター", type: "水", cat: "物理", power: 70, priority: 0, highCrit: true },
+            "アクアジェット": { name: "アクアジェット", type: "水", cat: "物理", power: 40, priority: 1 },
+            "ボルテッカー": { name: "ボルテッカー", type: "電", cat: "物理", power: 120, priority: 0, effect: "recoil_33" },
+            "でんじほう": { name: "でんじほう", type: "電", cat: "特殊", power: 120, priority: 0, effect: "paralyze_100", accuracy: 50 },
+            "きあいだま": { name: "きあいだま", type: "闘", cat: "特殊", power: 120, priority: 0, effect: "d_down_1_enemy_10", accuracy: 70 },
+            "なみのり": { name: "なみのり", type: "水", cat: "特殊", power: 100, priority: 0 },
+            "すいりゅうれんだ": { name: "すいりゅうれんだ", type: "水", cat: "物理", power: 25, priority: 0, multiHit: { min: 3, max: 3, crit: true } }, 
+            "つららばり": { name: "つららばり", type: "氷", cat: "物理", power: 25, priority: 0, multiHit: { min: 2, max: 5 } },
+            "ロックブラスト": { name: "ロックブラスト", type: "岩", cat: "物理", power: 25, priority: 0, multiHit: { min: 2, max: 5 } },
+            "タネマシンガン": { name: "タネマシンガン", type: "草", cat: "物理", power: 25, priority: 0, multiHit: { min: 2, max: 5 } },
+            "バトンタッチ": { name: "バトンタッチ", type: "無", cat: "変化", power: 0, priority: 0, effect: "baton_pass" },
+            "とんぼがえり": { name: "とんぼがえり", type: "虫", cat: "物理", power: 70, priority: 0, effect: "switch" },
+            "ボルトチェンジ": { name: "ボルトチェンジ", type: "電", cat: "特殊", power: 70, priority: 0, effect: "switch" },
+            "クイックターン": { name: "クイックターン", type: "水", cat: "物理", power: 60, priority: 0, effect: "switch" },
+            "すてゼリフ": { name: "すてゼリフ", type: "悪", cat: "変化", power: 0, priority: 0, effect: "parting_shot" },
+            "めいそう": { name: "めいそう", type: "超", cat: "変化", power: 0, priority: 0, effect: "cd_up_1" },
+            "じこさいせい": { name: "じこさいせい", type: "無", cat: "変化", power: 0, priority: 0, effect: "heal_50" },
+            "なまける": { name: "なまける", type: "無", cat: "変化", power: 0, priority: 0, effect: "heal_50" },
+            "はねやすめ": { name: "はねやすめ", type: "飛", cat: "変化", power: 0, priority: 0, effect: "heal_50" },
+            "ステルスロック": { name: "ステルスロック", type: "岩", cat: "変化", power: 0, priority: 0, effect: "stealthRock" },
+            "あくび": { name: "あくび", type: "無", cat: "変化", power: 0, priority: 0, effect: "yawn" },
+            "でんじは": { name: "でんじは", type: "電", cat: "変化", power: 0, priority: 0, effect: "paralyze" },
+            "おにび": { name: "おにび", type: "炎", cat: "変化", power: 0, priority: 0, effect: "burn" },
+            "キノコのほうし": { name: "キノコのほうし", type: "草", cat: "変化", power: 0, priority: 0, effect: "sleep" },
+            "ちょうはつ": { name: "ちょうはつ", type: "悪", cat: "変化", power: 0, priority: 0, effect: "taunt" },
+            "りゅうのまい": { name: "りゅうのまい", type: "竜", cat: "変化", power: 0, priority: 1, effect: "ddance" },
+            "つるぎのまい": { name: "つるぎのまい", type: "無", cat: "変化", power: 0, priority: 1, effect: "sdance" },
+            "てっぺき": { name: "てっぺき", type: "鋼", cat: "変化", power: 0, priority: 1, effect: "b_up_2" },
+            "ビルドアップ": { name: "ビルドアップ", type: "闘", cat: "変化", power: 0, priority: 1, effect: "ab_up_1" },
+            "からをやぶる": { name: "からをやぶる", type: "無", cat: "変化", power: 0, priority: 4, effect: "shell_smash" },
+            "ちょうのまい": { name: "ちょうのまい", type: "虫", cat: "変化", power: 0, priority: 0, effect: "qdance" },
+            "わるだくみ": { name: "わるだくみ", type: "悪", cat: "変化", power: 0, priority: 0, effect: "c_up_2" },
+            "タマゴうみ": { name: "タマゴうみ", type: "無", cat: "変化", power: 0, priority: 0, effect: "heal_50" },
+            "ちきゅうなげ": { name: "ちきゅうなげ", type: "闘", cat: "物理", power: 0, priority: 0, effect: "fixed_50" },
+            "どくどく": { name: "どくどく", type: "毒", cat: "変化", power: 0, priority: 0, effect: "poison" },
+            "トリック": { name: "トリック", type: "超", cat: "変化", power: 0, priority: 0, effect: "trick" },
+            "くろいヘドロ": { name: "くろいきり", type: "氷", cat: "変化", power: 0, priority: 0, effect: "haze" },
+            "ベノムショック": { name: "ベノムショック", type: "毒", cat: "特殊", power: 65, priority: 0, effect: "venoshock" },
+            "おはかまいり": { name: "おはかまいり", type: "霊", cat: "物理", power: 50, priority: 0, effect: "last_respects" },
+            "エレクトロビーム": { name: "エレクトロビーム", type: "電", cat: "特殊", power: 130, priority: 0, effect: "electro_beam" },
+            "トリックルーム": { name: "トリックルーム", type: "超", cat: "変化", power: 0, priority: -7, effect: "trick_room" }
+        };
+
+        const pokemonData = [
+            { name: "ピカチュウ", build: "アタッカー", types: ["電"], tera: "水", abilities: ["せいでんき", "ひらいしん"], item: "でんきだま", h: 110, a: 105, b: 90, c: 100, d: 100, s: 156, moves: ["１０まんボルト", "でんこうせっか", "ねこだまし", "かみなり"], sprite: "⚡", color: "text-yellow-400" },
+            { name: "ライチュウ(物理)", build: "メガX", types: ["電"], tera: "闘", abilities: ["せいでんき", "ひらいしん"], item: "ライチュウナイトX", h: 135, a: 115, b: 75, c: 115, d: 100, s: 135, moves: ["ボルテッカー", "しんそく", "インファイト", "じゃれつく"], sprite: "🐭", color: "text-yellow-500", mega: { name: "メガライチュウX", types: ["電", "闘"], ability: "エレキメイカー", a: 150, b: 90, c: 90, d: 90, s: 130 } },
+            { name: "ライチュウ(特殊)", build: "メガY", types: ["電"], tera: "水", abilities: ["せいでんき", "ひらいしん"], item: "ライチュウナイトY", h: 135, a: 115, b: 75, c: 115, d: 100, s: 135, moves: ["でんじほう", "きあいだま", "なみのり", "ボルトチェンジ"], sprite: "🐭", color: "text-yellow-500", mega: { name: "メガライチュウY", types: ["電", "水"], ability: "ノーガード", a: 90, b: 90, c: 150, d: 90, s: 130 } },
+            { name: "ポリゴン2", build: "きせき耐久", types: ["無"], tera: "毒", abilities: ["トレース", "ダウンロード"], item: "しんかのきせき", h: 192, a: 100, b: 156, c: 125, d: 115, s: 80, moves: ["トライアタック", "れいとうビーム", "でんじは", "じこさいせい"], sprite: "🦆", color: "text-pink-200" },
+            { name: "ポリゴン2(トリル)", build: "トリル始動", types: ["無"], tera: "妖", abilities: ["ダウンロード", "トレース"], item: "しんかのきせき", h: 192, a: 100, b: 156, c: 125, d: 115, s: 80, moves: ["トライアタック", "れいとうビーム", "トリックルーム", "じこさいせい"], sprite: "🦆", color: "text-pink-200" },
+            { name: "ミミロップ", build: "物理アタッカー", types: ["無"], tera: "無", abilities: ["じゅうナン", "ぶきよう"], item: "ミミロップナイト", h: 140, a: 128, b: 104, c: 74, d: 116, s: 157, moves: ["おんがえし", "とびひざげり", "ねこだまし", "れいとうパンチ"], sprite: "🐰", color: "text-yellow-200", mega: { name: "メガミミロップ", types: ["無", "闘"], ability: "きもったま", a: 188, b: 114, c: 74, d: 116, s: 187 } },
+            { name: "ヘイラッシャ", build: "物理受け", types: ["水"], tera: "妖", abilities: ["てんねん", "どんかん"], item: "たべのこし", h: 257, a: 120, b: 183, c: 85, d: 85, s: 55, moves: ["ウェーブタックル", "じしん", "まもる", "あくび"], sprite: "🐳", color: "text-blue-500" },
+            { name: "ウーラオス(水)", build: "水流連打", types: ["闘", "水"], tera: "水", abilities: ["ふかしのこぶし"], item: "きあいのタスキ", h: 175, a: 200, b: 120, c: 83, d: 80, s: 149, moves: ["すいりゅうれんだ", "インファイト", "アクアジェット", "とんぼがえり"], sprite: "🥋", color: "text-blue-500" },
+            { name: "ウーラオス(悪)", build: "暗黒強打", types: ["闘", "悪"], tera: "悪", abilities: ["ふかしのこぶし"], item: "きあいのタスキ", h: 175, a: 200, b: 120, c: 83, d: 80, s: 149, moves: ["あんこくきょうだ", "インファイト", "ふいうち", "とんぼがえり"], sprite: "🥋", color: "text-gray-500" },
+            { name: "ハバタクカミ", build: "変化技採用", types: ["霊", "妖"], tera: "妖", abilities: ["こだいのかっせい"], item: "ブーストエナジー", h: 131, a: 75, b: 75, c: 187, d: 155, s: 205, moves: ["ムーンフォース", "シャドーボール", "でんじは", "ちょうはつ"], sprite: "☄️", color: "text-purple-300" },
+            { name: "ハバタクカミ(フルアタ)", build: "フルアタ", types: ["霊", "妖"], tera: "妖", abilities: ["こだいのかっせい"], item: "こだわりメガネ", h: 131, a: 75, b: 75, c: 187, d: 155, s: 205, moves: ["ムーンフォース", "シャドーボール", "マジカルフレイム", "１０まんボルト"], sprite: "☄️", color: "text-purple-300" },
+            { name: "カイリュー", build: "竜舞アタッカー", types: ["竜", "飛"], tera: "無", abilities: ["マルチスケイル", "せいしんりょく"], item: "あつぞこブーツ", h: 167, a: 204, b: 115, c: 120, d: 120, s: 132, moves: ["げきりん", "じしん", "しんそく", "りゅうのまい"], sprite: "🐉", color: "text-orange-400" },
+            { name: "カイリュー", build: "鉢巻", types: ["竜", "飛"], tera: "飛", abilities: ["マルチスケイル", "せいしんりょく"], item: "こだわりハチマキ", h: 167, a: 204, b: 115, c: 120, d: 120, s: 132, moves: ["げきりん", "じしん", "しんそく", "アイアンヘッド"], sprite: "🐉", color: "text-orange-400" },
+            { name: "サーフゴー", build: "フルアタ", types: ["鋼", "霊"], tera: "鋼", abilities: ["おうごんのからだ"], item: "こだわりスカーフ", h: 194, a: 80, b: 115, c: 203, d: 111, s: 104, moves: ["ゴールドラッシュ", "シャドーボール", "１０まんボルト", "トリック"], sprite: "🪙", color: "text-yellow-500" },
+            { name: "サーフゴー", build: "耐久", types: ["鋼", "霊"], tera: "飛", abilities: ["おうごんのからだ"], item: "たべのこし", h: 194, a: 80, b: 115, c: 153, d: 111, s: 104, moves: ["ゴールドラッシュ", "シャドーボール", "じこさいせい", "でんじは"], sprite: "🪙", color: "text-yellow-500" },
+            { name: "ガチグマ(赫月)", build: "赫月", types: ["地", "無"], tera: "無", abilities: ["しんがん"], item: "とつげきチョッキ", h: 220, a: 90, b: 140, c: 205, d: 85, s: 72, moves: ["ブラッドムーン", "だいちのちから", "しんくうは", "ハイパーボイス"], sprite: "🐻", color: "text-red-800" },
+            { name: "ガチグマ(原種)", build: "物理", types: ["地", "無"], tera: "無", abilities: ["こんじょう", "すなのちから"], item: "かえんだま", h: 237, a: 211, b: 125, c: 65, d: 100, s: 70, moves: ["からげんき", "じしん", "かみくだく", "まもる"], sprite: "🐻", color: "text-yellow-700" },
+            { name: "ドラパルト", build: "物理", types: ["竜", "霊"], tera: "霊", abilities: ["すりぬけ", "クリアボディ"], item: "こだわりハチマキ", h: 163, a: 172, b: 95, c: 120, d: 95, s: 213, moves: ["ドラゴンアロー", "ゴーストダイブ", "とんぼがえり", "ふいうち"], sprite: "🐲", color: "text-green-300" },
+            { name: "ドラパルト", build: "特殊", types: ["竜", "霊"], tera: "霊", abilities: ["すりぬけ", "クリアボディ"], item: "こだわりメガネ", h: 163, a: 140, b: 95, c: 152, d: 95, s: 213, moves: ["りゅうせいぐん", "シャドーボール", "かえんほうしゃ", "１０まんボルト"], sprite: "🐲", color: "text-green-300" },
+            { name: "ランドロス", build: "霊獣おじさん", types: ["地", "飛"], tera: "飛", abilities: ["いかく"], item: "ゴツゴツメット", h: 196, a: 216, b: 110, c: 125, d: 100, s: 111, moves: ["じしん", "とんぼがえり", "がんせきふうじ", "ステルスロック"], sprite: "🐯", color: "text-orange-600" },
+            { name: "オーガポン(炎)", build: "仮面", types: ["草", "炎"], tera: "炎", abilities: ["かたやぶり"], item: "なし", h: 155, a: 172, b: 104, c: 80, d: 116, s: 178, moves: ["ツタこんぼう", "ウッドホーン", "でんこうせっか", "つるぎのまい"], sprite: "👹", color: "text-red-400" },
+            { name: "オーガポン(水)", build: "井戸", types: ["草", "水"], tera: "水", abilities: ["ちょすい"], item: "なし", h: 155, a: 172, b: 104, c: 80, d: 116, s: 178, moves: ["ツタこんぼう", "ウッドホーン", "じゃれつく", "つるぎのまい"], sprite: "👹", color: "text-blue-400" },
+            { name: "オーガポン(岩)", build: "礎", types: ["草", "岩"], tera: "岩", abilities: ["がんじょう"], item: "なし", h: 155, a: 172, b: 104, c: 80, d: 116, s: 178, moves: ["ツタこんぼう", "ウッドホーン", "はたきおとす", "つるぎのまい"], sprite: "👹", color: "text-gray-500" },
+            { name: "パオジアン", build: "災厄の剣", types: ["氷", "悪"], tera: "悪", abilities: ["わざわいのつるぎ"], item: "きあいのタスキ", h: 155, a: 172, b: 100, c: 110, d: 85, s: 205, moves: ["つららおとし", "かみくだく", "ふいうち", "せいなるつるぎ"], sprite: "🐆", color: "text-blue-300" },
+            { name: "ディンルー", build: "災厄の器", types: ["悪", "地"], tera: "毒", abilities: ["わざわいのうつわ"], item: "オボンのみ", h: 262, a: 130, b: 145, c: 75, d: 100, s: 65, moves: ["じしん", "カタストロフィ", "ヘビーボンバー", "ステルスロック"], sprite: "🦌", color: "text-yellow-800" },
+            { name: "カバルドン", build: "砂の番人", types: ["地"], tera: "水", abilities: ["すなおこし"], item: "オボンのみ", h: 215, a: 132, b: 187, c: 88, d: 92, s: 67, moves: ["じしん", "ステルスロック", "あくび", "なまける"], sprite: "🦛", color: "text-yellow-700" },
+            { name: "ミミッキュ", build: "不気味可愛い", types: ["霊", "妖"], tera: "霊", abilities: ["ばけのかわ"], item: "いのちのたま", h: 131, a: 142, b: 100, c: 70, d: 125, s: 148, moves: ["じゃれつく", "かげうち", "シャドークロー", "つるぎのまい"], sprite: "👻", color: "text-yellow-200" },
+            { name: "ミミッキュ(トリル)", build: "トリル始動", types: ["霊", "妖"], tera: "霊", abilities: ["ばけのかわ"], item: "いのちのたま", h: 131, a: 142, b: 100, c: 70, d: 125, s: 148, moves: ["じゃれつく", "かげうち", "シャドークロー", "トリックルーム"], sprite: "👻", color: "text-yellow-200" },
+            { name: "ロトム(水)", build: "家電製品", types: ["電", "水"], tera: "鋼", abilities: ["ふゆう"], item: "オボンのみ", h: 157, a: 85, b: 127, c: 172, d: 127, s: 106, moves: ["ハイドロポンプ", "ボルトチェンジ", "おにび", "トリック"], sprite: "💧", color: "text-blue-400" },
+            { name: "マスカーニャ", build: "トリックスター", types: ["草", "悪"], tera: "草", abilities: ["へんげんじざい", "しんりょく"], item: "きあいのタスキ", h: 151, a: 162, b: 90, c: 101, d: 90, s: 192, moves: ["トリックフラワー", "はたきおとす", "じゃれつく", "とんぼがえり"], sprite: "🐈‍⬛", color: "text-green-400" },
+            { name: "ラウドボーン", build: "歌うワニ", types: ["炎", "霊"], tera: "妖", abilities: ["てんねん", "もうか"], item: "たべのこし", h: 211, a: 95, b: 167, c: 130, d: 95, s: 86, moves: ["フレアソング", "シャドーボール", "おにび", "なまける"], sprite: "🐊", color: "text-red-500" },
+            { name: "イーユイ", build: "金魚アタッカー", types: ["悪", "炎"], tera: "炎", abilities: ["わざわいのたま"], item: "こだわりメガネ", h: 130, a: 100, b: 100, c: 187, d: 140, s: 152, moves: ["オーバーヒート", "あくのはどう", "かえんほうしゃ", "サイコキネシス"], sprite: "🐠", color: "text-red-600" },
+            { name: "コノヨザル", build: "憤怒のサル", types: ["闘", "霊"], tera: "炎", abilities: ["やるき", "まけんき"], item: "たべのこし", h: 217, a: 135, b: 100, c: 70, d: 110, s: 156, moves: ["ふんどのこぶし", "インファイト", "ビルドアップ", "ちょうはつ"], sprite: "🐒", color: "text-gray-300" },
+            { name: "テツノブジン", build: "サイバー戦士", types: ["妖", "闘"], tera: "妖", abilities: ["クォークチャージ"], item: "ブーストエナジー", h: 149, a: 182, b: 110, c: 140, d: 80, s: 184, moves: ["ソウルクラッシュ", "インファイト", "かげうち", "ちょうはつ"], sprite: "🤖", color: "text-pink-300" },
+            { name: "キョジオーン", build: "塩要塞", types: ["岩"], tera: "水", abilities: ["きよめのしお", "がんじょう"], item: "たべのこし", h: 207, a: 120, b: 200, c: 65, d: 110, s: 55, moves: ["しおづけ", "ボディプレス", "てっぺき", "じこさいせい"], sprite: "🧂", color: "text-yellow-100" },
+            { name: "セグレイブ", build: "パルデアの恐竜", types: ["竜", "氷"], tera: "地", abilities: ["ねつこうかん"], item: "いかさまダイス", h: 190, a: 216, b: 112, c: 85, d: 106, s: 139, moves: ["きょけんとつげき", "つららばり", "じしん", "りゅうのまい"], sprite: "🦖", color: "text-blue-200" },
+            { name: "パルシェン", build: "殻破りスナイパー", types: ["水", "氷"], tera: "水", abilities: ["スキルリンク", "シェルアーマー"], item: "きあいのタスキ", h: 125, a: 147, b: 200, c: 105, d: 65, s: 122, moves: ["つららばり", "ロックブラスト", "アクアブレイク", "からをやぶる"], sprite: "🐚", color: "text-blue-300" },
+            { name: "ゴリランダー", build: "ドラム叩くドラ", types: ["草"], tera: "草", abilities: ["グラスメイカー", "しんりょく"], item: "こだわりハチマキ", h: 207, a: 194, b: 110, c: 80, d: 90, s: 105, moves: ["グラススライダー", "ウッドハンマー", "はたきおとす", "とんぼがえり"], sprite: "🦍", color: "text-green-600" },
+            { name: "ヌメルゴン(ヒ)", build: "超硬い殻", types: ["鋼", "竜"], tera: "飛", abilities: ["そうしょく", "シェルアーマー"], item: "とつげきチョッキ", h: 187, a: 120, b: 120, c: 130, d: 222, s: 80, moves: ["ヘビーボンバー", "れいとうビーム", "かえんほうしゃ", "りゅうせいぐん"], sprite: "🐌", color: "text-gray-400" },
+            { name: "テツノドクガ", build: "未来の蛾", types: ["炎", "毒"], tera: "草", abilities: ["クォークチャージ"], item: "ブーストエナジー", h: 155, a: 90, b: 80, c: 192, d: 130, s: 178, moves: ["ほのおのまい", "ヘドロばくだん", "エナジーボール", "オーバーヒート"], sprite: "🦋", color: "text-red-400" },
+            { name: "オーロンゲ", build: "起点王", types: ["悪", "妖"], tera: "鋼", abilities: ["いたずらごころ", "おみとおし"], item: "メンタルハーブ", h: 202, a: 140, b: 128, c: 115, d: 95, s: 80, moves: ["ソウルクラッシュ", "でんじは", "ちょうはつ", "すてゼリフ"], sprite: "👺", color: "text-purple-400" },
+            { name: "オオニューラ", build: "軽業スナイパー", types: ["毒", "闘"], tera: "飛", abilities: ["かるわざ", "どくしゅ"], item: "きあいのタスキ", h: 155, a: 182, b: 80, c: 60, d: 100, s: 189, moves: ["フェイタルクロー", "インファイト", "ねこだまし", "とんぼがえり"], sprite: "🧗", color: "text-purple-400" },
+            { name: "ゾロアーク(ヒ)", build: "ヒスイの幻影", types: ["無", "霊"], tera: "無", abilities: ["イリュージョン"], item: "きあいのタスキ", h: 130, a: 120, b: 80, c: 177, d: 80, s: 178, moves: ["うらみつらみ", "ハイパーボイス", "シャドーボール", "わるだくみ"], sprite: "🦊", color: "text-gray-100" },
+            { name: "ダイケンキ(ヒ)", build: "ヒスイの剣豪", types: ["水", "悪"], tera: "水", abilities: ["きれあじ", "げきりゅう"], item: "きあいのタスキ", h: 165, a: 160, b: 100, c: 85, d: 85, s: 137, moves: ["ひけん・ちえなみ", "アクアカッター", "ふいうち", "せいなるつるぎ"], sprite: "🦦", color: "text-blue-400" },
+            { name: "ハピナス", build: "極ピンク", types: ["無"], tera: "水", abilities: ["しぜんかいふく", "てんのめぐみ"], item: "あつぞこブーツ", h: 330, a: 30, b: 68, c: 95, d: 187, s: 75, moves: ["ちきゅうなげ", "タマゴうみ", "でんじは", "ステルスロック"], sprite: "🥚", color: "text-pink-300" },
+            { name: "ドオー", build: "ドジョウさん", types: ["毒", "地"], tera: "毒", abilities: ["てんねん", "ちょすい"], item: "くろいヘドロ", h: 237, a: 95, b: 123, c: 65, d: 167, s: 40, moves: ["じしん", "どくどく", "じこさいせい", "ステルスロック"], sprite: "🦦", color: "text-yellow-800" },
+            { name: "アーマーガア", build: "鉄壁の烏", types: ["飛", "鋼"], tera: "竜", abilities: ["ミラーアーマー", "プレッシャー"], item: "ゴツゴツメット", h: 205, a: 107, b: 172, c: 73, d: 105, s: 87, moves: ["ブレイブバード", "ボディプレス", "てっぺき", "はねやすめ"], sprite: "🦅", color: "text-gray-400" },
+            { name: "ガおガエン", build: "万能サイクル", types: ["炎", "悪"], tera: "草", abilities: ["いかく", "もうか"], item: "オボンのみ", h: 202, a: 135, b: 156, c: 100, d: 110, s: 80, moves: ["フレアドライブ", "はたきおとす", "ねこだまし", "すてゼリフ"], sprite: "🐯", color: "text-red-500" },
+            { name: "ドドゲザン", build: "勝鬨の侍", types: ["悪", "鋼"], tera: "飛", abilities: ["まけんき", "そうだいしょう"], item: "とつげきチョッキ", h: 207, a: 205, b: 140, c: 80, d: 105, s: 70, moves: ["ドゲザン", "アイアンヘッド", "ふいうち", "かわらわり"], sprite: "🥷", color: "text-gray-400" },
+            { name: "テツノカイナ", build: "超重量級相撲", types: ["闘", "電"], tera: "水", abilities: ["クォークチャージ"], item: "とつげきチョッキ", h: 261, a: 211, b: 128, c: 70, d: 88, s: 70, moves: ["ドレインパンチ", "かみなりパンチ", "れいとうパンチ", "ねこだまし"], sprite: "✋", color: "text-yellow-500" },
+            { name: "イルカマン", build: "変身ヒーロー", types: ["水"], tera: "水", abilities: ["マイティチェンジ"], item: "こだわりハチマキ", h: 175, a: 233, b: 117, c: 126, d: 107, s: 152, moves: ["ジェットパンチ", "ウェーブタックル", "インファイト", "クイックターン"], sprite: "🐬", color: "text-blue-500" },
+            { name: "マリルリ", build: "力持ち兔", types: ["水", "妖"], tera: "水", abilities: ["ちからもち", "そうしょく"], item: "こだわりハチマキ", h: 207, a: 112, b: 100, c: 80, d: 100, s: 70, moves: ["アクアブレイク", "アクアジェット", "じゃれつく", "ばかぢから"], sprite: "🐰", color: "text-blue-300" },
+            { name: "クエスパトラ", build: "加速瞑想", types: ["超"], tera: "闘", abilities: ["かそく", "びんじょう"], item: "たべのこし", h: 202, a: 80, b: 122, c: 121, d: 80, s: 125, moves: ["ルミナコリジョン", "アシストパワー", "めいそう", "バトンタッチ"], sprite: "🦩", color: "text-yellow-200" },
+            { name: "コイル", build: "頑丈きせき", types: ["電", "鋼"], tera: "飛", abilities: ["がんじょう", "じりょく"], item: "しんかのきせき", h: 125, a: 55, b: 120, c: 140, d: 105, s: 65, moves: ["ほうでん", "ラスターカノン", "ボルトチェンジ", "トライアタック"], sprite: "🧲", color: "text-gray-400" },
+            { name: "カメックス", build: "頑丈シェル", types: ["水"], tera: "水", abilities: ["げきりゅう"], item: "カメックスナイト", h: 186, a: 103, b: 167, c: 105, d: 125, s: 98, moves: ["ハイドロポンプ", "れいとうビーム", "あくのはどう", "ロケットずつき"], sprite: "🐢", color: "text-blue-500", mega: { name: "メガカメックス", types: ["水"], ability: "メガランチャー", a: 103, b: 187, c: 155, d: 135, s: 98 } },
+            { name: "フシギバナ", build: "寄生植物", types: ["草", "毒"], tera: "地", abilities: ["しんりょく", "ようりょくそ"], item: "フシギバナイト", h: 187, a: 102, b: 103, c: 120, d: 167, s: 100, moves: ["リーフストーム", "ヘドロばくだん", "ギガドレイン", "じしん"], sprite: "🍃", color: "text-green-500", mega: { name: "メガフシギバナ", types: ["草", "毒"], ability: "あついしぼう", a: 102, b: 123, c: 142, d: 187, s: 100 } },
+            { name: "サンダー", build: "電気鳥", types: ["電", "飛"], tera: "鋼", abilities: ["せいでんき", "プレッシャー"], item: "ゴツゴツメット", h: 197, a: 110, b: 150, c: 145, d: 110, s: 120, moves: ["１０まんボルト", "ぼうふう", "ボルトチェンジ", "はねやすめ"], sprite: "🦅", color: "text-yellow-400" },
+            { name: "ウルガモス", build: "積みアタッカー", types: ["虫", "炎"], tera: "草", abilities: ["ほのおのからだ", "むしのしらせ"], item: "あつぞこブーツ", h: 161, a: 80, b: 85, c: 187, d: 125, s: 152, moves: ["ほのおのまい", "むしのさざめき", "ギガドレイン", "ちょうのまい"], sprite: "🦋", color: "text-orange-300" },
+            { name: "ナットレイ", build: "物理受け", types: ["草", "鋼"], tera: "水", abilities: ["てつのトゲ"], item: "たべのこし", h: 181, a: 114, b: 183, c: 74, d: 136, s: 40, moves: ["ジャイロボール", "パワーウィップ", "はたきおとす", "じこさいせい"], sprite: "🌿", color: "text-green-500" },
+            { name: "ゲッコウガ", build: "特殊アタッカー", types: ["水", "悪"], tera: "水", abilities: ["へんげんじざい", "げきりゅう"], item: "いのちのたま", h: 147, a: 115, b: 87, c: 155, d: 91, s: 191, moves: ["ハイドロポンプ", "あくのはどう", "れいとうビーム", "みずしゅりけん"], sprite: "🐸", color: "text-blue-500" },
+            { name: "エースバーン", build: "物理アタッカー", types: ["炎"], tera: "炎", abilities: ["リベロ", "もうか"], item: "いのちのたま", h: 155, a: 168, b: 95, c: 85, d: 95, s: 188, moves: ["かえんボール", "とびひざげり", "ふいうち", "とんぼがえり"], sprite: "🐰", color: "text-orange-500" },
+            { name: "ムクホーク(通常)", build: "アタッカー", types: ["無", "飛"], tera: "飛", abilities: ["いかく", "すてみ"], item: "こだわりスカーフ", h: 160, a: 172, b: 90, c: 63, d: 80, s: 152, moves: ["ブレイブバード", "インファイト", "すてみタックル", "とんぼがえり"], sprite: "🦅", color: "text-gray-300" },
+            { name: "ムクホーク(がむしゃら)", build: "がむしゃら", types: ["無", "飛"], tera: "無", abilities: ["いかく", "すてみ"], item: "きあいのタスキ", h: 160, a: 172, b: 90, c: 63, d: 80, s: 152, moves: ["とんぼがえり", "はねやすめ", "ブレイブバード", "インファイト"], sprite: "🦅", color: "text-gray-300", mega: { name: "メガムクホーク", types: ["闘", "飛"], ability: "あまのじゃく", a: 192, b: 100, c: 63, d: 100, s: 152 } },
+            { name: "ムクホーク(サイクル)", build: "サイクル", types: ["無", "飛"], tera: "飛", abilities: ["いかく", "すてみ"], item: "ゴツゴツメット", h: 192, a: 140, b: 112, c: 63, d: 80, s: 120, moves: ["ブレイブバード", "インファイト", "とんぼがえり", "はねやすめ"], sprite: "🦅", color: "text-gray-300" },
+            { name: "ムクホーク(炎技)", build: "ブレキ採用", types: ["無", "飛"], tera: "炎", abilities: ["いかく", "すてみ"], item: "ムクホークナイト", h: 160, a: 172, b: 90, c: 63, d: 80, s: 152, moves: ["はねやすめ", "インファイト", "ブレイズキック", "とんぼがえり"], sprite: "🦅", color: "text-gray-300", mega: { name: "メガムクホーク", types: ["闘", "飛"], ability: "あまのじゃく", a: 192, b: 100, c: 63, d: 100, s: 152 } },
+            { name: "リザードン", build: "黒炎竜", types: ["炎", "飛"], tera: "竜", abilities: ["もうか", "サンパワー"], item: "リザードナイトX", h: 153, a: 136, b: 98, c: 129, d: 105, s: 167, moves: ["フレアドライブ", "げきりん", "りゅうのまい", "じしん"], sprite: "🦎", color: "text-red-500", mega: { name: "メガリザードンX", types: ["炎", "竜"], ability: "かたいツメ", a: 182, b: 131, c: 150, d: 105, s: 167 } },
+            { name: "ルカリオ", build: "波導の闘士", types: ["闘", "鋼"], tera: "鋼", abilities: ["せいしんりょく", "ふくつのこころ"], item: "ルカリオナイト", h: 145, a: 162, b: 90, c: 135, d: 90, s: 156, moves: ["インファイト", "コメットパンチ", "バレットパンチ", "つるぎのまい"], sprite: "🐺", color: "text-blue-400", mega: { name: "メガルカリオ", types: ["闘", "鋼"], ability: "てきおうりょく", a: 197, b: 108, c: 160, d: 90, s: 180 } },
+            { name: "ボーマンダ", build: "圧倒的竜", types: ["竜", "飛"], tera: "無", abilities: ["いかく", "じしんかじょう"], item: "ボーマンダナイト", h: 171, a: 187, b: 100, c: 130, d: 100, s: 152, moves: ["すてみタックル", "じしん", "りゅうのまい", "はねやすめ"], sprite: "🐉", color: "text-blue-400", mega: { name: "メガボーマンダ", types: ["竜", "飛"], ability: "スカイスキン", a: 197, b: 150, c: 140, d: 110, s: 172 } },
+            { name: "ゲンガー", build: "幻影シャドー", types: ["霊", "毒"], tera: "無", abilities: ["のろわれボディ"], item: "ゲンガナイト", h: 135, a: 85, b: 80, c: 182, d: 95, s: 178, moves: ["シャドーボール", "ヘドロばくだん", "マジカルシャイン", "１０まんボルト"], sprite: "👿", color: "text-purple-600", mega: { name: "メガゲンガー", types: ["霊", "毒"], ability: "かげふみ", a: 85, b: 100, c: 212, d: 115, s: 198 } },
+            { name: "ハッサム", build: "紅き閃光", types: ["虫", "鋼"], tera: "水", abilities: ["テクニシャン", "むしのしらせ"], item: "ハッサムナイト", h: 177, a: 198, b: 120, c: 75, d: 100, s: 85, moves: ["バレットパンチ", "とんぼがえり", "インファイト", "つるぎのまい"], sprite: "🦂", color: "text-red-600", mega: { name: "メガハッサム", types: ["虫", "鋼"], ability: "テクニシャン", a: 218, b: 160, c: 75, d: 120, s: 105 } },
+            { name: "ガブリアス", build: "砂漠の覇王", types: ["竜", "地"], tera: "鋼", abilities: ["さめはだ", "すながくれ"], item: "ガブリアスナイト", h: 183, a: 182, b: 115, c: 100, d: 105, s: 169, moves: ["じしん", "げきりん", "がんせきふうじ", "ステルスロック"], sprite: "🦈", color: "text-blue-600", mega: { name: "メガガブリアス", types: ["竜", "地"], ability: "すなのちから", a: 212, b: 135, c: 140, d: 115, s: 149 } },
+            { name: "バンギラス", build: "鎧の怪獣", types: ["岩", "悪"], tera: "飛", abilities: ["すなおこし", "きんちょうかん"], item: "バンギラスナイト", h: 207, a: 186, b: 130, c: 115, d: 120, s: 81, moves: ["ストーンエッジ", "かみくだく", "じしん", "りゅうのまい"], sprite: "🦖", color: "text-green-700", mega: { name: "メガバンギラス", types: ["岩", "悪"], ability: "すなおこし", a: 210, b: 170, c: 115, d: 140, s: 91 } },
+            { name: "サーナイト", build: "優艶な乙女", types: ["超", "妖"], tera: "妖", abilities: ["トレース", "シンクロ"], item: "サーナイトナイト", h: 143, a: 75, b: 85, c: 177, d: 135, s: 132, moves: ["サイコキネシス", "ムーンフォース", "ハイパーボイス", "めいそう"], sprite: "🧝", color: "text-green-300", mega: { name: "メガサーナイト", types: ["超", "妖"], ability: "フェアリースキン", a: 95, b: 85, c: 217, d: 155, s: 152 } },
+            { name: "メタグロス", build: "青鋼の脳", types: ["鋼", "超"], tera: "闘", abilities: ["クリアボディ", "ライトメタル"], item: "メタグロスナイト", h: 185, a: 187, b: 150, c: 105, d: 110, s: 122, moves: ["コメットパンチ", "アイアンヘッド", "じしん", "バレットパンチ"], sprite: "🤖", color: "text-blue-300", mega: { name: "メガメタグロス", types: ["鋼", "超"], ability: "かたいツメ", a: 197, b: 170, c: 115, d: 130, s: 162 } },
+            { name: "クチート", build: "鋼の妖精", types: ["鋼", "妖"], tera: "炎", abilities: ["いかく", "かいりきバサミ"], item: "クチートナイト", h: 157, a: 139, b: 105, c: 65, d: 75, s: 70, moves: ["じゃれつく", "アイアンヘッド", "ふいうち", "つるぎのまい"], sprite: "🧚", color: "text-yellow-600", mega: { name: "メガクチート", types: ["鋼", "妖"], ability: "ちからもち", a: 159, b: 145, c: 65, d: 115, s: 70 } },
+            { name: "バシャーモ(アタッカー)", build: "闘志の鳳凰", types: ["炎", "闘"], tera: "炎", abilities: ["かそく", "もうか"], item: "バシャーモナイト", h: 155, a: 172, b: 90, c: 130, d: 90, s: 132, moves: ["フレアドライブ", "インファイト", "ブレイズキック", "まもる"], sprite: "🐓", color: "text-red-500", mega: { name: "メガバシャーモ", types: ["炎", "闘"], ability: "かそく", a: 212, b: 100, c: 150, d: 100, s: 152 } },
+            { name: "バシャーモ", build: "バトン", types: ["炎", "闘"], tera: "炎", abilities: ["かそく", "もうか"], item: "きあいのタスキ", h: 187, a: 140, b: 90, c: 130, d: 90, s: 142, moves: ["ビルドアップ", "バトンタッチ", "フレアドライブ", "まもる"], sprite: "🐓", color: "text-red-500" },
+            { name: "イダイトウ", build: "物理アタッカー", types: ["水", "霊"], tera: "水", abilities: ["てきおうりょく", "すいすい"], item: "いのちのたま", h: 195, a: 180, b: 85, c: 100, d: 95, s: 130, moves: ["ウェーブタックル", "おはかまいり", "アクアジェット", "クイックターン"], sprite: "🐟", color: "text-blue-300" },
+            { name: "ドヒドイデ", build: "耐久", types: ["毒", "水"], tera: "毒", abilities: ["さいせいりょく", "ひとでなし"], item: "くろいヘドロ", h: 180, a: 83, b: 224, c: 73, d: 227, s: 35, moves: ["じこさいせい", "くろいきり", "どくどく", "ベノムショック"], sprite: "🪸", color: "text-purple-400" },
+            { name: "ペリッパー", build: "雨始動", types: ["水", "飛"], tera: "水", abilities: ["あめふらし", "するどいめ"], item: "しめったいわ", h: 167, a: 70, b: 167, c: 115, d: 90, s: 85, moves: ["なみのり", "ぼうふう", "とんぼがえり", "はねやすめ"], sprite: "🦅", color: "text-blue-200" },
+            { name: "ラグラージ", build: "アタッカー", types: ["水", "地"], tera: "水", abilities: ["げきりゅう", "しめりけ"], item: "ラグラージナイト", h: 207, a: 178, b: 110, c: 105, d: 110, s: 80, moves: ["ウェーブタックル", "じしん", "アクアジェット", "クイックターン"], sprite: "🐸", color: "text-blue-600", mega: { name: "メガラグラージ", types: ["水", "地"], ability: "すいすい", a: 222, b: 130, c: 115, d: 130, s: 90 } },
+            { name: "ブリジュラス", build: "持久力アタッカー", types: ["鋼", "竜"], tera: "飛", abilities: ["じきゅうりょく", "がんじょう"], item: "とつげきチョッキ", h: 165, a: 125, b: 150, c: 194, d: 85, s: 105, moves: ["エレクトロビーム", "ラスターカノン", "りゅうせいぐん", "ボディプレス"], sprite: "🌉", color: "text-gray-300" }
+        ];
+
+        let gameMode = 'pve'; 
+        let currentTurnPlayer = 1; 
+        let p1Action = null, p2Action = null;
+        let selectingPlayer = 1;
+
+        let p1SelectedParty = [], p2SelectedParty = [], selectedParty = []; 
+        let playerParty = [], enemyParty = [];
+        let p1FinalSelected = [], p2FinalSelected = []; 
+        let showdownStep = 'p1'; 
+        let currentPlayerIndex = 0, currentEnemyIndex = 0;
+        let isProcessing = false;
+        
+        let playerPartyTeraUsed = false, enemyPartyTeraUsed = false;
+        let playerPartyMegaUsed = false, enemyPartyMegaUsed = false;
+        let p1TeraChecked = false, p2TeraChecked = false;
+        let p1MegaChecked = false, p2MegaChecked = false;
+        
+        let player = null, currentEnemy = null;
+        let playerField = { stealthRock: false }; 
+        let enemyField = { stealthRock: false };
+        let battleState = { weather: null, weatherTurns: 0, terrain: null, terrainTurns: 0, trickRoomTurns: 0 };
+
+        const els = {
+            screenMode: null, screenSelect: null, screenShowdown: null,
+            selectTitle: null, selectSubtitle: null,
+            screenBattle: null, pokemonList: null,
+            selectedStatus: null, selectedPokemonArea: null,
+            btnStart: null, turnIndicator: null,
+            labelP1: null, labelP2: null,
+            playerPartyIcons: null, enemyPartyIcons: null,
+            enemyName: null, enemyType: null,
+            enemyAbility: null, enemyItem: null,
+            enemyHpText: null, enemyHpBar: null,
+            enemyStatus: null, enemySprite: null,
+            playerName: null, playerType: null,
+            playerAbility: null, playerItem: null,
+            playerHpText: null, playerHpBar: null,
+            playerStatus: null, logContainer: null,
+            chkTera: null, teraLabel: null,
+            chkMega: null, megaLabel: null,
+            btnRestart: null, btnRematch: null, btnSwitch: null,
+            switchModal: null, switchModalTitle: null,
+            switchList: null, btnCancelSwitch: null,
+            fieldStatus: null,
+            showdownTitle: null, showdownSubtitle: null,
+            showdownPlayerLabel: null, showdownEnemyLabel: null,
+            showdownPlayerList: null, showdownEnemyList: null,
+            showdownSelectedStatus: null, btnShowdownConfirm: null,
+            btnMoves: []
+        };
+
+        function initEls() {
+            els.screenMode = document.getElementById('screen-mode'); 
+            els.screenSelect = document.getElementById('screen-select');
+            els.screenShowdown = document.getElementById('screen-showdown');
+            els.selectTitle = document.getElementById('select-title'); 
+            els.selectSubtitle = document.getElementById('select-subtitle');
+            els.screenBattle = document.getElementById('screen-battle'); 
+            els.pokemonList = document.getElementById('pokemon-list');
+            els.selectedStatus = document.getElementById('selected-status'); 
+            els.selectedPokemonArea = document.getElementById('selected-pokemon-area');
+            els.btnStart = document.getElementById('btn-start'); 
+            els.turnIndicator = document.getElementById('turn-indicator');
+            els.labelP1 = document.getElementById('label-p1'); 
+            els.labelP2 = document.getElementById('label-p2');
+            els.playerPartyIcons = document.getElementById('player-party-icons'); 
+            els.enemyPartyIcons = document.getElementById('enemy-party-icons');
+            els.enemyName = document.getElementById('enemy-name'); 
+            els.enemyType = document.getElementById('enemy-type');
+            els.enemyAbility = document.getElementById('enemy-ability'); 
+            els.enemyItem = document.getElementById('enemy-item');
+            els.enemyHpText = document.getElementById('enemy-hp-text'); 
+            els.enemyHpBar = document.getElementById('enemy-hp-bar');
+            els.enemyStatus = document.getElementById('enemy-status'); 
+            els.enemySprite = document.getElementById('enemy-sprite');
+            els.playerName = document.getElementById('player-name'); 
+            els.playerType = document.getElementById('player-type');
+            els.playerAbility = document.getElementById('player-ability'); 
+            els.playerItem = document.getElementById('player-item');
+            els.playerHpText = document.getElementById('player-hp-text'); 
+            els.playerHpBar = document.getElementById('player-hp-bar');
+            els.playerStatus = document.getElementById('player-status'); 
+            els.logContainer = document.getElementById('log-container');
+            els.chkTera = document.getElementById('chk-tera'); 
+            els.teraLabel = document.getElementById('tera-label');
+            els.chkMega = document.getElementById('chk-mega'); 
+            els.megaLabel = document.getElementById('mega-label');
+            els.btnRestart = document.getElementById('btn-restart'); 
+            els.btnRematch = document.getElementById('btn-rematch'); 
+            els.btnSwitch = document.getElementById('btn-switch');
+            els.switchModal = document.getElementById('switch-modal'); 
+            els.switchModalTitle = document.getElementById('switch-modal-title');
+            els.switchList = document.getElementById('switch-list'); 
+            els.btnCancelSwitch = document.getElementById('btn-cancel-switch');
+            els.fieldStatus = document.getElementById('field-status');
+
+            els.showdownTitle = document.getElementById('showdown-title');
+            els.showdownSubtitle = document.getElementById('showdown-subtitle');
+            els.showdownPlayerLabel = document.getElementById('showdown-player-label');
+            els.showdownEnemyLabel = document.getElementById('showdown-enemy-label');
+            els.showdownPlayerList = document.getElementById('showdown-player-list');
+            els.showdownEnemyList = document.getElementById('showdown-enemy-list');
+            els.showdownSelectedStatus = document.getElementById('showdown-selected-status');
+            els.btnShowdownConfirm = document.getElementById('btn-showdown-confirm');
+
+            els.btnMoves = [
+                document.getElementById('btn-move0'), 
+                document.getElementById('btn-move1'), 
+                document.getElementById('btn-move2'), 
+                document.getElementById('btn-move3')
+            ];
+        }
+
+        const waitMs = ms => new Promise(resolve => setTimeout(resolve, ms));
+        
+        function getStat(val, stage) { return stage >= 0 ? Math.floor(val * (2 + stage) / 2) : Math.floor(val * 2 / (2 - stage)); }
+        
+        function getHighestStat(p) {
+            const stats = { s: p.s, a: p.a, c: p.c, b: p.b, d: p.d };
+            return Object.keys(stats).reduce((a, b) => stats[a] > stats[b] ? a : b);
+        }
+
+        function getAtk(p, defender, isPhysical, moveName) {
+            let base = isPhysical ? p.a : p.c;
+            const stage = isPhysical ? p.statStages.a : p.statStages.c;
+            let stat = getStat(base, stage);
+            
+            if (defender.ability === "てんねん" && stage > 0) stat = base;
+            if (!isPhysical && defender.ability === "わざわいのうつわ" && p.ability !== "わざわいのうつわ") stat = Math.floor(stat * 0.75);
+            if (isPhysical && p.status === 'burn' && p.ability !== 'こんじょう' && moveName !== 'からげんき') stat = Math.floor(stat * 0.5);
+
+            if (isPhysical && p.item === "こだわりハチマキ") stat = Math.floor(stat * 1.5);
+            if (!isPhysical && p.item === "こだわりメガネ") stat = Math.floor(stat * 1.5);
+            
+            if (isPhysical && p.volatile.boostEnergy === 'a') stat = Math.floor(stat * 1.3);
+            if (!isPhysical && p.volatile.boostEnergy === 'c') stat = Math.floor(stat * 1.3);
+
+            if (isPhysical && p.ability === "ちからもち") stat *= 2;
+            if (p.name === "ピカチュウ" && p.item === "でんきだま") stat *= 2;
+            if (isPhysical && p.ability === "きれあじ" && ["ひけん・ちえなみ", "アクアカッター", "せいなるつるぎ", "つじぎり", "リーフブレード", "サイコカッター", "エアスラッシュ"].includes(moveName)) stat = Math.floor(stat * 1.5);
+            
+            return stat;
+        }
+
+        function getDef(p, attacker, isPhysical) {
+            let base = isPhysical ? p.b : p.d;
+            const stage = isPhysical ? p.statStages.b : p.statStages.d;
+            let stat = getStat(base, stage);
+            
+            if (attacker.ability === "てんねん" && stage > 0) stat = base;
+            if (isPhysical && attacker.ability === "わざわいのつるぎ" && p.ability !== "わざわいのつるぎ") stat = Math.floor(stat * 0.75);
+            if (!isPhysical && attacker.ability === "わざわいのたま" && p.ability !== "わざわいのたま") stat = Math.floor(stat * 0.75);
+            if (!isPhysical && p.item === "とつげきチョッキ") stat = Math.floor(stat * 1.5);
+            if (p.item === "しんかのきせき") stat = Math.floor(stat * 1.5);
+            if (isPhysical && p.volatile.boostEnergy === 'b') stat = Math.floor(stat * 1.3);
+            if (!isPhysical && p.volatile.boostEnergy === 'd') stat = Math.floor(stat * 1.3);
+            
+            if (!isPhysical && battleState.weather === 'sandstorm' && p.types.includes("岩")) stat = Math.floor(stat * 1.5);
+            if (isPhysical && battleState.weather === 'snow' && p.types.includes("氷")) stat = Math.floor(stat * 1.5);
+
+            return stat;
+        }
+
+        function getSpeed(p) {
+            let speed = getStat(p.s, p.statStages.s);
+            if (p.status === 'paralysis') speed = Math.floor(speed * 0.5);
+            if (p.item === "こだわりスカーフ") speed = Math.floor(speed * 1.5);
+            if (p.volatile.boostEnergy === 's') speed = Math.floor(speed * 1.5);
+            if (p.ability === "かるわざ" && p.item === null) speed *= 2;
+            if (battleState.weather === 'rain' && p.ability === "すいすい") speed *= 2;
+            if (battleState.weather === 'sandstorm' && p.ability === "すなかき") speed *= 2;
+            if (battleState.weather === 'sun' && p.ability === "ようりょくそ") speed *= 2;
+            return speed;
+        }
+
+        function getEffectivenessMultiplier(moveType, moveName, targetTypes, targetAbility, attackerAbility) {
+            let multiplier = 1.0;
+            const ignoreAbility = (attackerAbility === "かたやぶり");
+            if (!ignoreAbility) {
+                if (moveType === "地" && targetAbility === "ふゆう") return 0;
+                if (moveType === "水" && targetAbility === "ちょすい") return 0;
+                if (moveType === "炎" && targetAbility === "もらいび") return 0;
+                if (moveType === "電" && targetAbility === "ちくでん") return 0;
+                if (moveType === "草" && targetAbility === "そうしょく") return 0;
+            }
+
+            targetTypes.forEach(t => {
+                let eff = effectiveness[moveType]?.[t] ?? 1.0;
+                if ((attackerAbility === "しんがん" || attackerAbility === "きもったま") && (moveType === "無" || moveType === "闘") && t === "霊") eff = 1.0;
+                if (targetAbility === "きよめのしお" && moveType === "霊") eff = 0.5;
+                if (targetAbility === "あついしぼう" && (moveType === "炎" || moveType === "氷")) eff = 0.5;
+                if (moveName === "フリーズドライ" && t === "水") eff = 2.0;
+                multiplier *= eff;
+            });
+            return multiplier;
+        }
+
+        function checkCritHit(move) {
+            let critStage = 0;
+            if (move.crit) {
+                critStage = 3; 
+            } else if (move.highCrit) {
+                critStage = 1; 
+            }
+            const rand = Math.random();
+            if (critStage === 0) return rand < (1 / 24); 
+            if (critStage === 1) return rand < (1 / 8);  
+            if (critStage === 2) return rand < (1 / 2);  
+            return true; 
+        }
+
+        function getHpColor(percent) { return percent > 50 ? '#4ade80' : percent > 20 ? '#facc15' : '#ef4444'; }
+
+        function getStatusBadge(p) {
+            let badges = "";
+            if (p.status === "paralysis") badges += `<span class="bg-yellow-500 text-black px-1 rounded border border-black">まひ</span>`;
+            if (p.status === "sleep") badges += `<span class="bg-gray-400 text-black px-1 rounded border border-black">ねむり</span>`;
+            if (p.status === "burn") badges += `<span class="bg-red-500 text-white px-1 rounded border border-black">やけど</span>`;
+            if (p.status === "poison") badges += `<span class="bg-purple-500 text-white px-1 rounded border border-black">どく</span>`;
+            if (p.volatile.yawn > 0) badges += `<span class="bg-blue-300 text-black px-1 rounded border border-black">あくび</span>`;
+            if (p.volatile.taunt > 0) badges += `<span class="bg-purple-600 text-white px-1 rounded border border-black">挑発</span>`;
+            if (p.volatile.saltCure) badges += `<span class="bg-white text-black px-1 rounded border border-black">しお</span>`;
+            return badges;
+        }
+
+        function getStatStagesBadge(p) {
+            let badges = "";
+            const names = { a: "A", b: "B", c: "C", d: "D", s: "S" };
+            for (let key in p.statStages) {
+                const stage = p.statStages[key];
+                if (stage > 0) badges += `<span class="bg-red-600 text-white px-1 rounded border border-black text-[9px] font-bold">${names[key]}+${stage}</span>`;
+                else if (stage < 0) badges += `<span class="bg-blue-600 text-white px-1 rounded border border-black text-[9px] font-bold">${names[key]}${stage}</span>`;
+            }
+            return badges;
+        }
+
+        function updateUI() {
+            if (!player || !currentEnemy) return;
+
+            els.playerPartyIcons.textContent = playerParty.map((p, i) => p.hp > 0 ? (i===currentPlayerIndex ? "⚫️" : "🔴") : "❌").join("");
+            els.enemyPartyIcons.textContent = enemyParty.map((p, i) => p.hp > 0 ? (i===currentEnemyIndex ? "⚫️" : "🔴") : "❌").join("");
+
+            let hidePlayerInfo = false;
+            let hideEnemyInfo = false;
+
+            if (gameMode === 'pve') {
+                hideEnemyInfo = true; 
+            } else if (gameMode === 'pvp') {
+                if (isProcessing) {
+                    hidePlayerInfo = true;
+                    hideEnemyInfo = true;
+                } else if (currentTurnPlayer === 1) {
+                    hideEnemyInfo = true; 
+                } else if (currentTurnPlayer === 2) {
+                    hidePlayerInfo = true; 
+                }
+            }
+
+            const updateMonUI = (isPlayer, p, hideInfo) => {
+                const prefix = isPlayer ? 'player' : 'enemy';
+                els[`${prefix}Name`].textContent = p.isTera ? `💎 ${p.name}` : p.name;
+                els[`${prefix}Name`].className = `text-lg mb-1 font-bold ${p.isTera ? 'text-yellow-300' : p.color}`;
+                
+                if (hideInfo) {
+                    els[`${prefix}Type`].textContent = `タイプ: ???`;
+                    els[`${prefix}Ability`].textContent = `特性: ???`;
+                    els[`${prefix}Item`].textContent = `持物: ???`;
+                } else {
+                    els[`${prefix}Type`].textContent = p.isTera ? `タイプ: ${p.types[0]}` : `タイプ: ${p.types.join('/')} (💎${p.tera})`;
+                    els[`${prefix}Ability`].textContent = `特性: ${p.ability}`;
+                    els[`${prefix}Item`].textContent = `持物: ${p.item || "なし"}`;
+                }
+
+                els[`${prefix}HpText`].textContent = `${p.hp} / ${p.maxHp}`;
+                const hpPercent = Math.max(0, (p.hp / p.maxHp) * 100);
+                els[`${prefix}HpBar`].style.width = `${hpPercent}%`;
+                els[`${prefix}HpBar`].style.backgroundColor = getHpColor(hpPercent);
+                els[`${prefix}Status`].innerHTML = getStatusBadge(p) + " " + getStatStagesBadge(p);
+            };
+
+            updateMonUI(true, player, hidePlayerInfo);
+            updateMonUI(false, currentEnemy, hideEnemyInfo);
+
+            if (gameMode === 'pvp') {
+                els.turnIndicator.textContent = currentTurnPlayer === 1 ? "【 1P の コマンドにゅうりょく 】" : "【 2P の コマンドにゅうりょく 】";
+                els.turnIndicator.className = currentTurnPlayer === 1 ? "text-center font-bold text-lg mb-1 py-1 rounded bg-blue-900 border border-blue-500 text-blue-200 block" : "text-center font-bold text-lg mb-1 py-1 rounded bg-red-900 border border-red-500 text-red-200 block";
+            } else els.turnIndicator.classList.add('hidden');
+
+            let fieldText = "";
+            if (battleState.trickRoomTurns > 0) fieldText += "🌀 トリックルーム ";
+            if (battleState.weather === 'rain') fieldText += "☔ 雨 ";
+            else if (battleState.weather === 'sun') fieldText += "☀️ 晴れ ";
+            else if (battleState.weather === 'sandstorm') fieldText += "🌪️ 砂嵐 ";
+            else if (battleState.weather === 'snow') fieldText += "❄️ 雪 ";
+
+            if (battleState.terrain === 'electric') fieldText += "⚡ エレキフィールド";
+            else if (battleState.terrain === 'grassy') fieldText += "🌿 グラスフィールド";
+            else if (battleState.terrain === 'psychic') fieldText += "🔮 サイコフィールド";
+            else if (battleState.terrain === 'misty') fieldText += "🌫️ ミストフィールド";
+
+            els.fieldStatus.textContent = fieldText;
+
+            let activePkmn = (gameMode === 'pvp' && currentTurnPlayer === 2) ? currentEnemy : player;
+            let activeParty = (gameMode === 'pvp' && currentTurnPlayer === 2) ? enemyParty : playerParty;
+            let activeIndex = (gameMode === 'pvp' && currentTurnPlayer === 2) ? currentEnemyIndex : currentPlayerIndex;
+
+            let isTeraUsed = currentTurnPlayer === 1 ? playerPartyTeraUsed : enemyPartyTeraUsed;
+            let isTeraChecked = currentTurnPlayer === 1 ? p1TeraChecked : p2TeraChecked;
+            els.chkTera.disabled = isTeraUsed || isProcessing || activePkmn.lockedMove;
+            els.chkTera.checked = isTeraUsed ? false : isTeraChecked;
+            els.teraLabel.className = `text-sm font-bold ${isTeraUsed || activePkmn.lockedMove ? 'text-gray-500' : 'text-yellow-300'}`;
+
+            let isMegaUsed = currentTurnPlayer === 1 ? playerPartyMegaUsed : enemyPartyMegaUsed;
+            let baseName = activePkmn.name.split('(')[0];
+            let megaKey = activePkmn.name;
+            if (!megaStoneMap[megaKey]) megaKey = baseName;
+            
+            let canMega = activePkmn.mega && !activePkmn.isMega && !isMegaUsed && activePkmn.item === megaStoneMap[megaKey];
+            let isMegaChecked = currentTurnPlayer === 1 ? p1MegaChecked : p2MegaChecked;
+            els.chkMega.disabled = !canMega || isProcessing || activePkmn.lockedMove;
+            els.chkMega.checked = canMega ? isMegaChecked : false;
+            els.megaLabel.className = `text-[10px] font-bold ${!canMega || activePkmn.lockedMove ? 'text-gray-500' : 'text-purple-300'}`;
+
+            els.btnMoves.forEach((btn, i) => {
+                const moveName = activePkmn.moves[i];
+                const move = moveData[moveName];
+                let disabled = isProcessing || !move;
+                if (move) {
+                    if (activePkmn.volatile.taunt > 0 && move.cat === "変化") disabled = true;
+                    if (activePkmn.item === "とつげきチョッキ" && move.cat === "変化") disabled = true;
+                    if (activePkmn.lockedMove && activePkmn.lockedMove !== moveName) disabled = true;
+                }
+                
+                let effText = "", effColor = "text-gray-400";
+                if (move && move.cat !== "変化") {
+                    let moveType = move.type;
+                    if (activePkmn.ability === "スカイスキン" && moveType === "無") moveType = "飛";
+                    if (activePkmn.ability === "フェアリースキン" && moveType === "無") moveType = "妖";
+                    
+                    const targetPkmn = currentTurnPlayer === 1 ? currentEnemy : player;
+                    const eff = getEffectivenessMultiplier(moveType, move.name, targetPkmn.isTera ? targetPkmn.types : targetPkmn.originalTypes, targetPkmn.ability, activePkmn.ability);
+                    if (eff > 1) { effText = "ばつぐん"; effColor = "text-red-400"; }
+                    else if (eff === 0) { effText = "こうかなし"; effColor = "text-gray-500"; }
+                    else if (eff < 1) { effText = "いまひとつ"; effColor = "text-blue-400"; }
+                }
+                btn.innerHTML = `<span>${moveName || '-'}</span><span class="text-[9px] md:text-[11px] mt-1"><span class="text-gray-400">(${move ? (activePkmn.ability === 'スカイスキン' && move.type === '無' ? '飛' : activePkmn.ability === 'フェアリースキン' && move.type === '無' ? '妖' : move.type) : '-'})</span> <span class="${effColor} font-bold tracking-wider">${effText}</span></span>`;
+                btn.disabled = disabled;
+            });
+            els.btnSwitch.disabled = isProcessing || activeParty.filter((p,i) => p.hp>0 && i!==activeIndex).length === 0;
+        }
+
+        function addLog(message) {
+            const line = document.createElement('div');
+            line.className = 'log-line'; 
+            line.textContent = message;
+            els.logContainer.appendChild(line);
+            while (els.logContainer.children.length > 5) {
+                els.logContainer.removeChild(els.logContainer.firstChild);
+            }
+            els.logContainer.scrollTop = els.logContainer.scrollHeight;
+        }
+
+        function showDamageEffect(targetEl, amount, isHeal = false) {
+            const effect = document.createElement('div');
+            effect.className = `damage-text ${isHeal ? 'heal-text' : ''}`; 
+            effect.textContent = amount;
+            effect.style.left = `calc(50% + ${(Math.random() - 0.5) * 60}px)`; 
+            effect.style.top = `calc(50% + ${(Math.random() - 0.5) * 40}px)`;
+            targetEl.appendChild(effect);
+            if (!isHeal) {
+                targetEl.classList.add('enemy-shake');
+                setTimeout(() => targetEl.classList.remove('enemy-shake'), 400);
+            }
+            setTimeout(() => effect.remove(), 1000);
+        }
+
+        function selectGameMode(mode) {
+            gameMode = mode;
+            els.screenMode.classList.add('hidden'); 
+            els.screenSelect.classList.remove('hidden');
+            selectingPlayer = 1; 
+            selectedParty = [];
+            renderSelectionScreen();
+        }
+
+        function toggleSelection(index) {
+            const existingIdx = selectedParty.findIndex(p => p.pokemonIndex === index);
+            if (existingIdx > -1) {
+                selectedParty.splice(existingIdx, 1);
+            } else if (selectedParty.length < 6) { 
+                const pkmn = pokemonData[index];
+                selectedParty.push({ 
+                    pokemonIndex: index, 
+                    item: pkmn.item || "なし", 
+                    ability: pkmn.abilities[0] 
+                });
+            }
+            renderSelectionScreen();
+        }
+
+        window.updateSelectedItem = (partyIndex, newItem) => selectedParty[partyIndex].item = newItem;
+        window.updateSelectedAbility = (partyIndex, newAbility) => selectedParty[partyIndex].ability = newAbility;
+
+        function renderSelectionScreen() {
+            if (gameMode === 'pvp') {
+                els.selectTitle.textContent = `${selectingPlayer}P の 登録画面`;
+            } else {
+                els.selectTitle.textContent = "てもち と 特性・もちもの を えらぼう！";
+            }
+
+            els.selectedPokemonArea.innerHTML = '';
+            selectedParty.forEach((p, idx) => {
+                const pkmn = pokemonData[p.pokemonIndex];
+                const row = document.createElement('div');
+                row.className = 'flex flex-col md:flex-row items-center gap-2 justify-between bg-gray-800 p-2 rounded border border-gray-600 flex-1 w-full';
+                
+                let itemOptions = ITEM_LIST.map(item => `<option value="${item}" ${p.item === item ? 'selected' : ''}>${item}</option>`).join('');
+                let abilityOptions = pkmn.abilities.map(ab => `<option value="${ab}" ${p.ability === ab ? 'selected' : ''}>${ab}</option>`).join('');
+                
+                row.innerHTML = `
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                        <span class="text-2xl md:text-3xl">${pkmn.sprite}</span>
+                        <div class="flex flex-col text-left">
+                            <span class="font-bold text-[11px] md:text-xs ${pkmn.color} leading-tight">${pkmn.name}</span>
+                            <span class="text-[9px] md:text-[10px] text-gray-400 leading-tight">💎${pkmn.tera}</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 w-full md:w-auto justify-end">
+                        <div class="flex flex-col text-left">
+                            <span class="text-[8px] text-yellow-400 font-bold">特性</span>
+                            <select class="bg-gray-700 text-white text-[10px] md:text-xs p-1 rounded border border-gray-500 max-w-[110px]" onchange="updateSelectedAbility(${idx}, this.value)">${abilityOptions}</select>
+                        </div>
+                        <div class="flex flex-col text-left">
+                            <span class="text-[8px] text-green-400 font-bold">持ち物</span>
+                            <select class="bg-gray-700 text-white text-[10px] md:text-xs p-1 rounded border border-gray-500 max-w-[110px]" onchange="updateSelectedItem(${idx}, this.value)">${itemOptions}</select>
+                        </div>
+                    </div>
+                `;
+                els.selectedPokemonArea.appendChild(row);
+            });
+
+            els.pokemonList.innerHTML = '';
+            pokemonData.forEach((p, index) => {
+                const btn = document.createElement('button');
+                const isSelected = selectedParty.some(sp => sp.pokemonIndex === index);
+                btn.className = `flex flex-col items-center justify-center p-1 h-20 md:h-24 transition-all rounded bg-gray-800 ${isSelected ? 'ring-4 ring-yellow-400 bg-gray-700' : 'hover:bg-gray-700'}`;
+                btn.innerHTML = `<span class="text-2xl md:text-3xl mb-1">${p.sprite}</span><span class="${p.color} font-bold text-[9px] md:text-[11px] leading-tight w-full px-1">${p.name}<br><span class="text-gray-400 font-normal">(${p.build})</span></span>`;
+                btn.onclick = () => toggleSelection(index);
+                els.pokemonList.appendChild(btn);
+            });
+            
+            const remain = 6 - selectedParty.length; 
+            if (remain === 0) {
+                els.selectedStatus.textContent = gameMode === 'pvp' ? `${selectingPlayer}Pの 登録メンバー決定！` : "メンバー登録完了！";
+                els.selectedStatus.className = "text-lg text-yellow-300 font-bold mt-2 h-6 animate-pulse";
+                els.btnStart.textContent = (gameMode === 'pvp' && selectingPlayer === 1) ? "2Pの登録へ" : "見せ合いフェーズへ";
+                els.btnStart.classList.remove('hidden');
+            } else {
+                els.selectedStatus.textContent = `あと ${remain}びき えらべるぞ`;
+                els.selectedStatus.className = "text-lg text-green-400 font-bold mt-2 h-6";
+                els.btnStart.classList.add('hidden');
+            }
+        }
+
+        function generateCPUParty() {
+            let pool = [...pokemonData];
+            for(let i = pool.length - 1; i > 0; i--) {
+                let j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            
+            let selectedIndices = [];
+            let selectedTypes = new Set();
+            
+            const rainCoreNames = ["ペリッパー", "ラグラージ", "ブリジュラス"];
+            const trCoreNames = ["ポリゴン2(トリル)", "ガチグマ(赫月)", "テツノカイナ"];
+            
+            let triggerRain = false;
+            let triggerTR = false;
+            
+            for(let i = 0; i < 6; i++) {
+                if (rainCoreNames.some(name => pool[i].name.includes(name))) triggerRain = true;
+                if (trCoreNames.some(name => pool[i].name.includes(name))) triggerTR = true;
+            }
+            
+            const addCore = (coreNames) => {
+                coreNames.forEach(coreName => {
+                    let idx = pokemonData.findIndex(p => p.name.includes(coreName));
+                    if (idx !== -1 && !selectedIndices.includes(idx)) {
+                        selectedIndices.push(idx);
+                        pokemonData[idx].types.forEach(t => selectedTypes.add(t));
+                    }
+                });
+            };
+            
+            if (triggerRain) addCore(rainCoreNames);
+            else if (triggerTR) addCore(trCoreNames);
+            
+            for (let p of pool) {
+                if (selectedIndices.length >= 6) break;
+                let idx = pokemonData.indexOf(p);
+                if (selectedIndices.includes(idx)) continue;
+                let hasOverlap = p.types.some(t => selectedTypes.has(t));
+                // 5体目まではタイプ被りを絶対に許容せず、より広範囲の相性補完を強制
+                if (!hasOverlap || (selectedIndices.length >= 5 && Math.random() > 0.5)) {
+                    selectedIndices.push(idx);
+                    p.types.forEach(t => selectedTypes.add(t));
+                }
+            }
+            for (let p of pool) {
+                if (selectedIndices.length >= 6) break;
+                let idx = pokemonData.indexOf(p);
+                if (!selectedIndices.includes(idx)) {
+                    selectedIndices.push(idx);
+                }
+            }
+            
+            return selectedIndices.map(idx => ({ 
+                pokemonIndex: idx, 
+                item: pokemonData[idx].item || "なし",
+                ability: pokemonData[idx].abilities[Math.floor(Math.random() * pokemonData[idx].abilities.length)]
+            }));
+        }
+
+        function getCPUBestSelection() {
+            let scores = p2SelectedParty.map((cp, localIdx) => {
+                let pData = pokemonData[cp.pokemonIndex];
+                let score = 0;
+                p1SelectedParty.forEach(pp => {
+                    let ppData = pokemonData[pp.pokemonIndex];
+                    pData.types.forEach(atkType => {
+                        ppData.types.forEach(defType => {
+                            let effObj = effectiveness[atkType];
+                            let mult = effObj && effObj[defType] !== undefined ? effObj[defType] : 1.0;
+                            score += mult;
+                        });
+                    });
+                });
+                return { localIdx: localIdx, name: pData.name, score: score };
+            });
+            
+            scores.sort((a, b) => b.score - a.score);
+            
+            const checkCoreSelection = (coreNames) => {
+                let coreIndices = [];
+                for (let i = 0; i < p2SelectedParty.length; i++) {
+                    let pName = pokemonData[p2SelectedParty[i].pokemonIndex].name;
+                    if (coreNames.some(n => pName.includes(n))) {
+                        coreIndices.push(i);
+                    }
+                }
+                
+                if (coreIndices.length === 3) {
+                    let top2 = scores.slice(0, 2);
+                    if (top2.some(s => coreNames.some(n => s.name.includes(n)))) {
+                        return coreIndices;
+                    }
+                }
+                return null;
+            };
+
+            const rainCoreNames = ["ペリッパー", "ラグラージ", "ブリジュラス"];
+            const trCoreNames = ["ポリゴン2(トリル)", "ガチグマ(赫月)", "テツノカイナ"];
+            
+            let rainSelect = checkCoreSelection(rainCoreNames);
+            if (rainSelect) return rainSelect;
+            
+            let trSelect = checkCoreSelection(trCoreNames);
+            if (trSelect) return trSelect;
+            
+            return scores.slice(0, 3).map(s => s.localIdx);
+        }
+
+        function confirmSelection() {
+            if (gameMode === 'pve') {
+                p1SelectedParty = [...selectedParty];
+                p2SelectedParty = generateCPUParty();
+                startShowdownPhase();
+            } else {
+                if (selectingPlayer === 1) {
+                    p1SelectedParty = [...selectedParty];
+                    selectingPlayer = 2; 
+                    selectedParty = [];
+                    renderSelectionScreen();
+                } else {
+                    p2SelectedParty = [...selectedParty];
+                    startShowdownPhase();
+                }
+            }
+        }
+
+        function startShowdownPhase() {
+            els.screenSelect.classList.add('hidden');
+            els.screenShowdown.classList.remove('hidden');
+            showdownStep = 'p1';
+            p1FinalSelected = [];
+            p2FinalSelected = [];
+            renderShowdownScreen();
+        }
+
+        function renderShowdownScreen() {
+            els.showdownPlayerList.innerHTML = '';
+            els.showdownEnemyList.innerHTML = '';
+
+            let activeParty = showdownStep === 'p1' ? p1SelectedParty : p2SelectedParty;
+            let activeSelections = showdownStep === 'p1' ? p1FinalSelected : p2FinalSelected;
+
+            els.showdownTitle.textContent = showdownStep === 'p1' ? "【 1P (あなた) の選出画面 】" : "【 2P (あいて) の選出画面 】";
+            els.showdownTitle.className = showdownStep === 'p1' ? "text-xl md:text-2xl text-blue-300 font-bold tracking-widest" : "text-xl md:text-2xl text-red-300 font-bold tracking-widest";
+            
+            activeParty.forEach((p, idx) => {
+                const pkmn = pokemonData[p.pokemonIndex];
+                const selectIndex = activeSelections.indexOf(idx);
+                const isSelected = selectIndex > -1;
+
+                const btn = document.createElement('button');
+                btn.className = `w-full flex items-center justify-between p-2 rounded border transition-all text-left ${isSelected ? 'bg-green-900 border-green-400 ring-2 ring-green-300' : 'bg-gray-700 border-gray-600 hover:bg-gray-600'}`;
+                btn.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">${pkmn.sprite}</span>
+                        <div class="flex flex-col">
+                            <span class="font-bold text-sm ${pkmn.color}">${pkmn.name}</span>
+                            <span class="text-xs text-gray-300">タイプ: ${pkmn.types.join('/')} | 特性: ${p.ability} | 持物: ${p.item}</span>
+                        </div>
+                    </div>
+                    <div>
+                        ${isSelected ? `<span class="bg-green-500 text-black px-2 py-1 rounded text-xs font-bold">${selectIndex + 1}番手</span>` : `<span class="text-gray-400 text-xs">未選出</span>`}
+                    </div>
+                `;
+                btn.onclick = () => selectShowdownMon(idx);
+                els.showdownPlayerList.appendChild(btn);
+            });
+
+            let opponentParty = showdownStep === 'p1' ? p2SelectedParty : p1SelectedParty;
+            opponentParty.forEach((p) => {
+                const pkmn = pokemonData[p.pokemonIndex];
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-3 p-2 bg-gray-700 border border-gray-600 rounded';
+                row.innerHTML = `
+                    <span class="text-2xl">${pkmn.sprite}</span>
+                    <div class="flex flex-col">
+                        <span class="font-bold text-sm text-gray-200">${pkmn.name}</span>
+                        <span class="text-xs text-gray-400">タイプ: ${pkmn.types.join('/')}</span>
+                    </div>
+                `;
+                els.showdownEnemyList.appendChild(row);
+            });
+
+            const remain = 3 - activeSelections.length;
+            if (remain === 0) {
+                els.showdownSelectedStatus.textContent = "3匹の選出が完了しました！";
+                els.showdownSelectedStatus.className = "text-lg text-yellow-300 font-bold h-6 animate-pulse";
+                els.btnShowdownConfirm.classList.remove('hidden');
+                els.btnShowdownConfirm.textContent = (gameMode === 'pvp' && showdownStep === 'p1') ? "2Pの選出へ" : "バトル開始！";
+            } else {
+                els.showdownSelectedStatus.textContent = `あと ${remain} 匹 選出してください。`;
+                els.showdownSelectedStatus.className = "text-lg text-green-400 font-bold h-6";
+                els.btnShowdownConfirm.classList.add('hidden');
+            }
+        }
+
+        function selectShowdownMon(idx) {
+            let activeSelections = showdownStep === 'p1' ? p1FinalSelected : p2FinalSelected;
+            const currentIdx = activeSelections.indexOf(idx);
+
+            if (currentIdx > -1) {
+                activeSelections.splice(currentIdx, 1);
+            } else if (activeSelections.length < 3) {
+                activeSelections.push(idx);
+            }
+            renderShowdownScreen();
+        }
+
+        async function confirmShowdownSelection() {
+            if (isProcessing) return;
+            if (gameMode === 'pvp' && showdownStep === 'p1') {
+                showdownStep = 'p2';
+                renderShowdownScreen();
+            } else {
+                isProcessing = true;
+                if (gameMode === 'pve') {
+                    p2FinalSelected = getCPUBestSelection();
+                }
+                await startRealBattle();
+            }
+        }
+
+        function createPokemonInstance(baseData, customItem = null, customAbility = null) {
+            return {
+                ...JSON.parse(JSON.stringify(baseData)),
+                maxHp: baseData.h, hp: baseData.h, originalTypes: [...baseData.types], isTera: false, isMega: false,
+                item: customItem !== null ? (customItem === "なし" ? null : customItem) : (baseData.item || null),
+                ability: customAbility !== null ? customAbility : baseData.abilities[0],
+                statStages: { a: 0, b: 0, c: 0, d: 0, s: 0 }, status: null, sleepCount: 0,
+                volatile: { yawn: 0, taunt: 0, disguiseBusted: false, changedType: false, boostEnergy: null, saltCure: false, protect: false, flinch: false, charging: null },
+                lockedMove: null, tookDamageThisTurn: false,
+                consecutiveProtect: 0, turnsInBattle: 0,
+                firstTurn: true
+            };
+        }
+
+        async function startRealBattle() {
+            isProcessing = true; 
+            
+            playerParty = p1FinalSelected.map(idx => {
+                const sp = p1SelectedParty[idx];
+                return createPokemonInstance(pokemonData[sp.pokemonIndex], sp.item, sp.ability);
+            });
+            enemyParty = p2FinalSelected.map(idx => {
+                const sp = p2SelectedParty[idx];
+                return createPokemonInstance(pokemonData[sp.pokemonIndex], sp.item, sp.ability);
+            });
+
+            els.screenShowdown.classList.add('hidden');
+            els.screenBattle.classList.remove('hidden');
+
+            currentPlayerIndex = 0; 
+            currentEnemyIndex = 0;
+            playerPartyTeraUsed = false; enemyPartyTeraUsed = false;
+            playerPartyMegaUsed = false; enemyPartyMegaUsed = false;
+            p1TeraChecked = false; p2TeraChecked = false;
+            p1MegaChecked = false; p2MegaChecked = false;
+            currentTurnPlayer = 1; p1Action = null; p2Action = null;
+            playerField = { stealthRock: false }; enemyField = { stealthRock: false };
+            battleState = { weather: null, weatherTurns: 0, terrain: null, terrainTurns: 0, trickRoomTurns: 0 };
+            els.logContainer.innerHTML = '';
+
+            await spawnEnemy(currentEnemyIndex); 
+            await spawnPlayer(currentPlayerIndex);
+            
+            isProcessing = false; 
+            updateUI();
+        }
+
+        async function applyEntryHazardsAndAbilities(p, isPlayer) {
+            if (!p) return;
+            const field = isPlayer ? playerField : enemyField;
+            const opponent = isPlayer ? currentEnemy : player;
+            if (field.stealthRock && p.ability !== "マジックガード" && p.item !== "あつぞこブーツ") {
+                const mult = getEffectivenessMultiplier("岩", "", p.types, p.ability, "");
+                if (mult > 0) {
+                    const dmg = Math.floor(p.maxHp * 0.125 * mult);
+                    p.hp -= dmg;
+                    showDamageEffect(isPlayer ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, dmg);
+                    addLog(`とがった いわが ${p.name} に くいこんだ！`); await waitMs(800);
+                }
+            }
+            if (p.hp <= 0) return;
+            if (p.ability === "いかく" && opponent && opponent.hp > 0) {
+                addLog(`${p.name} の いかく！`);
+                let change = opponent.ability === "あまのじゃく" ? 1 : -1;
+                if (change < 0 && (opponent.item === "クリアアミュレット" || opponent.ability === "クリアボディ" || opponent.ability === "ミラーアーマー")) {
+                    addLog(`${opponent.name} は のうりょくが さがらない！`); await waitMs(600);
+                } else {
+                    opponent.statStages.a = Math.max(-6, Math.min(6, opponent.statStages.a + change));
+                    addLog(`${opponent.name} の こうげきが ${change > 0 ? 'あがった' : 'さがった'}！`); await waitMs(800);
+                }
+            }
+            if (p.ability === "トレース" && opponent && opponent.ability !== "トレース") {
+                p.ability = opponent.ability;
+                addLog(`${p.name} は トレースで ${opponent.name}の ${opponent.ability} を コピーした！`); await waitMs(800);
+            }
+            if ((p.ability === "こだいのかっせい" || p.ability === "クォークチャージ") && p.item === "ブーストエナジー") {
+                p.item = null;
+                const highest = getHighestStat(p);
+                p.volatile.boostEnergy = highest;
+                const statNames = { s: "すばやさ", a: "こうげき", c: "とくこう", b: "ぼうぎょ", d: "とくぼう" };
+                addLog(`${p.name} は ブーストエナジーで ${statNames[highest]} が あがった！`); await waitMs(800);
+            }
+            
+            if ((p.ability === "あまふらし" || p.ability === "あめふらし") && battleState.weather !== 'rain') {
+                battleState.weather = 'rain'; 
+                battleState.weatherTurns = (p.item === "しめったいわ") ? 8 : 5;
+                addLog(`あめが ふりはじめた！${p.item === "しめったいわ" ? "（しめったいわで 延長！）" : ""}`); await waitMs(800);
+            }
+            if (p.ability === "すなおこし" && battleState.weather !== 'sandstorm') {
+                battleState.weather = 'sandstorm'; battleState.weatherTurns = 5;
+                addLog(`すなあらしが ふきあれる！`); await waitMs(800);
+            }
+            if ((p.ability === "ひひがさ(ひでり)" || p.ability === "ひでり") && battleState.weather !== 'sun') {
+                battleState.weather = 'sun'; battleState.weatherTurns = 5;
+                addLog(`ひざしが つよくなった！`); await waitMs(800);
+            }
+            if (p.ability === "ゆきふらし" && battleState.weather !== 'snow') {
+                battleState.weather = 'snow'; battleState.weatherTurns = 5;
+                addLog(`ゆきが ふりはじめた！`); await waitMs(800);
+            }
+            if (p.ability === "エレキメイカー" && battleState.terrain !== "electric") {
+                battleState.terrain = "electric"; battleState.terrainTurns = 5;
+                addLog(`足元に 電気が かけめぐる！`); await waitMs(800);
+            }
+            if (p.ability === "グラスメイカー" && battleState.terrain !== "grassy") {
+                battleState.terrain = "grassy"; battleState.terrainTurns = 5;
+                addLog(`足元に 草が 生い茂った！`); await waitMs(800);
+            }
+        }
+
+        async function spawnEnemy(index, savedStages = null) {
+            currentEnemyIndex = index; currentEnemy = enemyParty[index]; 
+            currentEnemy.turnsInBattle = 0; currentEnemy.consecutiveProtect = 0;
+            if (savedStages) currentEnemy.statStages = { ...savedStages };
+            updateUI();
+            addLog(`${gameMode === 'pvp' ? '2P' : 'あいて'} は ${currentEnemy.name} を くりだした！`); await waitMs(800);
+            if (!currentEnemy) return;
+            await applyEntryHazardsAndAbilities(currentEnemy, false); updateUI();
+        }
+
+        async function spawnPlayer(index, savedStages = null) {
+            currentPlayerIndex = index; player = playerParty[index]; p1TeraChecked = false; p1MegaChecked = false;
+            player.turnsInBattle = 0; player.consecutiveProtect = 0;
+            if (savedStages) player.statStages = { ...savedStages };
+            updateUI();
+            addLog(`ゆけっ！ ${player.name}！`); await waitMs(800);
+            if (!player) return;
+            await applyEntryHazardsAndAbilities(player, true); updateUI();
+        }
+
+        let resolveSwitch = null;
+
+        async function promptManualSwitch(playerNum = 1) {
+            if (isProcessing) return;
+            openSwitchModal(false, false, playerNum);
+        }
+
+        function openSwitchModalAsync(isUturn = false, playerNum = 1) {
+            return new Promise(resolve => { resolveSwitch = resolve; openSwitchModal(isUturn, true, playerNum); });
+        }
+
+        function openSwitchModal(isUturn, isAsync = false, playerNum = 1) {
+            els.switchList.innerHTML = '';
+            let party = playerNum === 1 ? playerParty : enemyParty;
+            let activeIndex = playerNum === 1 ? currentPlayerIndex : currentEnemyIndex;
+            party.forEach((p, i) => {
+                const btn = document.createElement('button');
+                const isCurrent = i === activeIndex; const isDead = p.hp <= 0;
+                btn.className = `btn-command flex justify-between items-center p-2 text-sm ${isCurrent || isDead ? 'opacity-50 cursor-not-allowed bg-gray-800' : 'bg-blue-900 hover:bg-blue-700'}`;
+                btn.disabled = isCurrent || isDead;
+                btn.innerHTML = `<span>${p.sprite} ${p.name}</span> <span>HP: ${p.hp}/${p.maxHp}</span>`;
+                if (!isCurrent && !isDead) {
+                    btn.onclick = () => {
+                        closeSwitchModal();
+                        if (isAsync && resolveSwitch) { const res = resolveSwitch; resolveSwitch = null; res(i); } 
+                        else executeTurnInput('switch', i);
+                    };
+                }
+                els.switchList.appendChild(btn);
+            });
+            els.switchModalTitle.textContent = isUturn ? "交代先をえらんでください" : "次にだすポケモンをえらぶ";
+            els.btnCancelSwitch.style.display = (isUturn || party[activeIndex].hp <= 0 || isAsync) ? 'none' : 'block';
+            els.switchModal.classList.remove('hidden');
+        }
+
+        function closeSwitchModal() { els.switchModal.classList.add('hidden'); }
+
+        async function executeUturnSwitch(targetIndex, playerNum, isBaton = false) {
+            let p = playerNum === 1 ? player : currentEnemy;
+            addLog(`${playerNum === 1 ? '' : (gameMode === 'pvp' ? '2Pの ' : 'あいての ')}${p.name} は ひっこんだ！`);
+            
+            if (p.ability === "しぜんかいふく" && p.status) {
+                p.status = null;
+                addLog(`${p.name} は しぜんかいふく で じょうたいが なおった！`);
+                await waitMs(600);
+            }
+            if (p.ability === "さいせいりょく" && p.hp > 0 && p.hp < p.maxHp) {
+                let heal = Math.floor(p.maxHp / 3);
+                p.hp = Math.min(p.maxHp, p.hp + heal);
+                addLog(`${p.name} は 少し 回復して ひっこんだ！`);
+                await waitMs(600);
+            }
+            
+            let savedStages = { a: 0, b: 0, c: 0, d: 0, s: 0 };
+            if (isBaton) {
+                savedStages = { ...p.statStages };
+                addLog(`${p.name} は のうりょくへんかを つないだ！`);
+            }
+
+            p.volatile = { yawn: 0, taunt: 0, disguiseBusted: false, changedType: false, boostEnergy: null, saltCure: false, protect: false, flinch: false, charging: null };
+            p.statStages = { a: 0, b: 0, c: 0, d: 0, s: 0 }; p.lockedMove = null; p.tookDamageThisTurn = false;
+            p.consecutiveProtect = 0; p.turnsInBattle = 0;
+            p.firstTurn = true; 
+
+            await waitMs(800);
+            if (playerNum === 1) await spawnPlayer(targetIndex, savedStages); else await spawnEnemy(targetIndex, savedStages);
+            updateUI();
+        }
+
+        async function inflictStatus(p, statusType, message) {
+            let isGrounded = !p.types.includes("飛") && p.ability !== "ふゆう";
+            if (battleState.terrain === "electric" && isGrounded && statusType === 'sleep') {
+                addLog(`${p.name} は エレキフィールドで ねむらない！`); await waitMs(600); return;
+            }
+            if (battleState.terrain === "misty" && isGrounded) {
+                addLog(`${p.name} は ミストフィールドで 状態異常にならない！`); await waitMs(600); return;
+            }
+            
+            if (p.ability === "きよめのしお") { addLog(`${p.name} は きよめのしおで じょうたいを わるくされない！`); await waitMs(600); return; }
+            if (p.item === "ラムのみ") { p.item = null; addLog(`${p.name} は ラムのみで じょうたいを なおした！`); await waitMs(600); } 
+            else { p.status = statusType; if (statusType === 'sleep') p.sleepCount = 2 + Math.floor(Math.random() * 3); addLog(message); await waitMs(600); }
+        }
+
+        async function applyStatChange(p, stat, changeAmount, isAmanojaku, attackerItem, attackerAbility) {
+            let actualChange = isAmanojaku ? -changeAmount : changeAmount;
+            
+            if (actualChange < 0 && (p.item === "クリアアミュレット" || p.ability === "クリアボディ" || p.ability === "ミラーアーマー")) {
+                addLog(`${p.name} は のうりょくが さがらない！`);
+                await waitMs(600);
+                return;
+            }
+
+            let statNames = { 'a': 'こうげき', 'b': 'ぼうぎょ', 'c': 'とくこう', 'd': 'とくぼう', 's': 'すばやさ' };
+            let oldStage = p.statStages[stat];
+            p.statStages[stat] = Math.max(-6, Math.min(6, p.statStages[stat] + actualChange));
+            
+            if (oldStage !== p.statStages[stat]) {
+                let verb = actualChange > 0 ? (actualChange > 1 ? 'ぐーんと あがった' : 'あがった') : (actualChange < -1 ? 'ガクッと さがった' : 'さがった');
+                addLog(`${p.name}の ${statNames[stat]} が ${verb}！`);
+                await waitMs(600);
+            } else {
+                let verb = actualChange > 0 ? 'これ以上 あがらない' : 'これ以上 さがらない';
+                addLog(`${p.name}の ${statNames[stat]} は ${verb}！`);
+                await waitMs(600);
+            }
+        }
+
+        async function performAction(attacker, defender, move, attackerSide) {
+            if (!move || attacker.hp <= 0 || defender.hp <= 0) return { success: false, switchTriggered: false };
+
+            let isFirstTurn = attacker.firstTurn;
+            attacker.firstTurn = false; 
+
+            const contactMoves = ["すいりゅうれんだ", "あんこくきょうだ", "インファイト", "アクアジェット", "ふいうち", "とんぼがえり", "フレアドライブ", "じゃれつく", "せいなるつるぎ", "はたきおとす", "ドラゴンアロー", "ゴーストダイブ", "かえんボール", "とびひざげり", "でんこうせっか", "れいとうパンチ", "シャドークロー", "りゅうせいぐん", "マジカルフレイム", "トリックフラワー", "フレアソング", "オーバーヒート", "あくのはどう", "サイコキネシス", "マッハパンチ", "ウェーブタックル", "ゆきなだれ", "アクロバット", "ぼうふう", "ドゲザン", "ドレインパンチ", "かみなりパンチ", "ジェットパンチ", "かわらわり", "アクアブレイク", "ばかぢから", "ブレイブバード", "ボディプレス", "ふんどのこぶし", "しおづけ", "きょけんとつげき", "すてみタックル", "がむしゃら", "ヘドロばくだん", "マジカルシャイン", "ジャイロボール", "パワーウィップ", "みずしゅりけん", "ほのおのまい", "むしのさざめき", "ギガドレイン", "コメットパンチ", "エアスラッシュ", "グラススライダー", "ウッドハンマー", "からげんき", "エナジーボール", "アイアンテール", "かみなり", "ほのおのパンチ", "ロケットずつき", "リーフストーム", "ほうでん", "ラスターカノン", "トライアタック", "ルミナコリジョン", "アシストパワー", "ブレイズキック", "フェイタルクロー", "うらみつらみ", "ひけん・ちえなみ", "アクアカッター", "アクアジェット", "ボルテッカー"];
+            const isContact = contactMoves.includes(move.name);
+
+            if (attacker.volatile.flinch) {
+                attacker.volatile.flinch = false;
+                addLog(`${attacker.name} は ひるんで わざが だせない！`);
+                await waitMs(800);
+                return { success: false, switchTriggered: false };
+            }
+
+            if (attacker.status === 'sleep') {
+                attacker.sleepCount--;
+                if (attacker.sleepCount <= 0) { attacker.status = null; addLog(`${attacker.name} は めをさました！`); await waitMs(800); } 
+                else { addLog(`${attacker.name} は ぐうぐう ねむっている...`); await waitMs(800); return { success: false, switchTriggered: false }; }
+            }
+            if (attacker.status === 'paralysis' && Math.random() < 0.25) {
+                addLog(`${attacker.name} は からだが しびれて うごけない！`); await waitMs(800); return { success: false, switchTriggered: false };
+            }
+
+            if ((attacker.ability === "へんげんじざい" || attacker.ability === "リベロ") && !attacker.volatile.changedType && !attacker.isTera && move.type !== "無" && move.cat !== "変化") {
+                attacker.types = [move.type]; attacker.volatile.changedType = true;
+                addLog(`${attacker.name} は ${attacker.ability} で ${move.type}タイプ に なった！`); await waitMs(600); updateUI();
+            }
+
+            if (move.effect === "protect") {
+                const successRate = Math.pow(1/3, attacker.consecutiveProtect);
+                if (Math.random() < successRate) {
+                    attacker.volatile.protect = true;
+                    attacker.consecutiveProtect++;
+                    addLog(`${attacker.name} は まもりの しせいに はいった！`);
+                    await waitMs(800);
+                } else {
+                    attacker.consecutiveProtect = 0;
+                    addLog(`${attacker.name} の ${move.name}！`); await waitMs(800);
+                    addLog(`しかし うまく きまらなかった！`);
+                    await waitMs(800);
+                }
+                return { success: true, switchTriggered: false };
+            } else {
+                attacker.consecutiveProtect = 0;
+            }
+
+            if (move.effect === "fake_out") {
+                if (!isFirstTurn) {
+                    addLog(`${attacker.name} の ${move.name}！`); await waitMs(800);
+                    addLog(`しかし うまく きまらなかった！`);
+                    await waitMs(800);
+                    return { success: false, switchTriggered: false };
+                }
+            }
+
+            let isSelfTarget = ["ddance", "sdance", "b_up_1", "b_up_2", "ab_up_1", "shell_smash", "qdance", "cd_up_1", "c_up_2", "baton_pass", "heal_50", "electro_beam"].includes(move.effect);
+            let isFieldTarget = ["stealthRock", "haze"].includes(move.effect);
+
+            if (defender.volatile.protect && !isSelfTarget && !isFieldTarget && !attacker.volatile.charging) {
+                if (attacker.ability === "ふかしのこぶし" && isContact) {
+                    addLog(`${attacker.name} は まもりを つらぬいた！`);
+                    await waitMs(600);
+                } else {
+                    addLog(`${attacker.name} の ${move.name}！`); await waitMs(800);
+                    addLog(`${defender.name} は こうげきから みを まもった！`);
+                    await waitMs(800);
+                    return { success: false, switchTriggered: false };
+                }
+            }
+
+            let isAmanojakuA = attacker.ability === "あまのじゃく";
+            let isAmanojakuD = defender.ability === "あまのじゃく";
+
+            if (move.effect === "electro_beam") {
+                if (battleState.weather === 'rain') {
+                    await applyStatChange(attacker, 'c', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else {
+                    if (!attacker.volatile.charging) {
+                        attacker.volatile.charging = move.name;
+                        addLog(`${attacker.name} は 宇宙の 力を きゅうしゅうした！`); await waitMs(600);
+                        await applyStatChange(attacker, 'c', 1, isAmanojakuA, attacker.item, attacker.ability);
+                        attacker.lockedMove = move.name; 
+                        return { success: true, switchTriggered: false };
+                    } else {
+                        attacker.volatile.charging = null;
+                        attacker.lockedMove = null;
+                    }
+                }
+            }
+
+            if (move.accuracy && !attacker.volatile.charging) {
+                let acc = move.accuracy;
+                if (attacker.ability === "ノーガード" || defender.ability === "ノーガード") acc = 100;
+                if (Math.random() * 100 > acc) {
+                    addLog(`${attacker.name} の ${move.name}！`); await waitMs(800);
+                    addLog(`しかし こうげきは はずれた！`); await waitMs(800);
+                    return { success: false, switchTriggered: false };
+                }
+            }
+
+            addLog(`${attacker.name} の ${move.name}！`); await waitMs(800);
+
+            if (attacker.item && attacker.item.startsWith("こだわり")) attacker.lockedMove = move.name;
+
+            let totalDamage = 0, actualHits = 0, isDisguiseBusted = false, sashActivated = false, sturdyActivated = false;
+            let effectivenessMult = 1.0, isAlwaysCrit = false, moveType = move.type;
+
+            if (move.cat === "変化") {
+                if (defender.ability === "おうごんのからだ" && !["stealthRock", "ddance", "sdance", "heal_50", "b_up_1", "b_up_2", "ab_up_1", "shell_smash", "qdance", "cd_up_1", "c_up_2", "baton_pass", "haze"].includes(move.effect)) {
+                    addLog(`${defender.name} は 特性でおうごんのからだ だ！`); addLog(`...こうか が ないみたいだ`); await waitMs(800); return { success: false, switchTriggered: false };
+                }
+                
+                if (move.effect === "heal_50") {
+                    const heal = Math.floor(attacker.maxHp / 2); attacker.hp = Math.min(attacker.maxHp, attacker.hp + heal);
+                    showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, heal, true);
+                    addLog(`${attacker.name}の たいりょくが かいふくした！`); await waitMs(600);
+                } else if (move.effect === "stealthRock") {
+                    const targetField = attackerSide === 1 ? enemyField : playerField;
+                    if (targetField.stealthRock) addLog(`すでに ステルスロックが まかれている！`);
+                    else { targetField.stealthRock = true; addLog(`あいての まわりに とがったいわが うかんだ！`); }
+                    await waitMs(800);
+                } else if (move.effect === "yawn") {
+                    if (defender.status || defender.volatile.yawn > 0 || defender.ability === "やるき" || defender.ability === "きよめのしお") addLog(`しかし うまく きまらなかった！`);
+                    else { defender.volatile.yawn = 2; addLog(`${defender.name} は ねむけを さそわれた！`); }
+                    await waitMs(800);
+                } else if (move.effect === "paralyze" || move.effect === "paralyze_100" || move.effect === "paralyze_30") {
+                    if (defender.status || defender.types.includes("電") || defender.types.includes("地")) addLog(`しかし うまく きまらなかった！`);
+                    else await inflictStatus(defender, "paralysis", `${defender.name} は まひして わざがでにくくなった！`);
+                } else if (move.effect === "burn") {
+                    if (defender.status || defender.types.includes("炎") || defender.ability === "ねつこうかん") addLog(`しかし うまく きまらなかった！`);
+                    else await inflictStatus(defender, "burn", `${defender.name} は やけどを おった！`);
+                } else if (move.effect === "poison") {
+                    if (defender.status || defender.types.includes("毒") || defender.types.includes("鋼")) { addLog(`しかし うまく きまらなかった！`); await waitMs(800); }
+                    else await inflictStatus(defender, "poison", `${defender.name} は どくを あびた！`);
+                } else if (move.effect === "sleep") {
+                    if (defender.status || (defender.types.includes("草") && move.type === "草") || defender.ability === "そうしょく" || defender.ability === "やるき") addLog(`しかし うまく きまらなかった！`);
+                    else await inflictStatus(defender, "sleep", `${defender.name} は ねむってしまった！`);
+                } else if (move.effect === "taunt") {
+                    if (defender.item === "メンタルハーブ") {
+                        defender.item = null; addLog(`${defender.name} は メンタルハーブで ちょうはつを ふせいだ！`); await waitMs(800);
+                    } else {
+                        defender.volatile.taunt = 3; addLog(`${defender.name} は ちょうはつ にのった！`); await waitMs(800);
+                    }
+                } else if (move.effect === "parting_shot") {
+                    await applyStatChange(defender, 'a', -1, isAmanojakuD, null, attacker.ability);
+                    await applyStatChange(defender, 'c', -1, isAmanojakuD, null, attacker.ability);
+                    return { success: true, switchTriggered: true };
+                } else if (move.effect === "ddance") {
+                    await applyStatChange(attacker, 'a', 1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 's', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "sdance") {
+                    await applyStatChange(attacker, 'a', 2, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "b_up_1") {
+                    await applyStatChange(attacker, 'b', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "b_up_2") {
+                    await applyStatChange(attacker, 'b', 2, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "ab_up_1") {
+                    await applyStatChange(attacker, 'a', 1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'b', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "shell_smash") {
+                    await applyStatChange(attacker, 'b', -1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'd', -1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'a', 2, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'c', 2, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 's', 2, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "qdance") {
+                    await applyStatChange(attacker, 'c', 1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'd', 1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 's', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "cd_up_1") {
+                    await applyStatChange(attacker, 'c', 1, isAmanojakuA, attacker.item, attacker.ability);
+                    await applyStatChange(attacker, 'd', 1, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "c_up_2") {
+                    await applyStatChange(attacker, 'c', 2, isAmanojakuA, attacker.item, attacker.ability);
+                } else if (move.effect === "baton_pass") {
+                    return { success: true, switchTriggered: true, isBaton: true };
+                } else if (move.effect === "trick_room") {
+                    if (battleState.trickRoomTurns > 0) {
+                        battleState.trickRoomTurns = 0;
+                        addLog(`ゆがんだ じくうが もとにもどった！`); await waitMs(800);
+                    } else {
+                        battleState.trickRoomTurns = 5;
+                        addLog(`じくうが ゆがんだ！`); await waitMs(800);
+                    }
+                    updateUI();
+                } else if (move.effect === "trick") {
+                    let aItem = attacker.item;
+                    let dItem = defender.item;
+                    let aMega = Object.values(megaStoneMap).includes(aItem);
+                    let dMega = Object.values(megaStoneMap).includes(dItem);
+                    if (aMega || dMega || (aItem === null && dItem === null)) {
+                        addLog(`しかし うまく きまらなかった！`); await waitMs(800);
+                    } else {
+                        attacker.item = dItem;
+                        defender.item = aItem;
+                        addLog(`${attacker.name} は ${defender.name} と もちものを 入れ替えた！`); await waitMs(800);
+                        if (!attacker.item || !attacker.item.startsWith("こだわり")) attacker.lockedMove = null;
+                        if (!defender.item || !defender.item.startsWith("こだわり")) defender.lockedMove = null;
+                        updateUI();
+                    }
+                } else if (move.effect === "haze") {
+                    attacker.statStages = { a: 0, b: 0, c: 0, d: 0, s: 0 };
+                    defender.statStages = { a: 0, b: 0, c: 0, d: 0, s: 0 };
+                    addLog(`すべての のうりょくへんかが もとにもどった！`); await waitMs(800);
+                    updateUI();
+                }
+            } else {
+                if (moveType === "草" && defender.ability === "そうしょく") {
+                    addLog(`${defender.name} は そうしょく で ダメージをうけない！`); 
+                    await applyStatChange(defender, 'a', 1, isAmanojakuD, null, attacker.ability);
+                    return { success: false, switchTriggered: false };
+                }
+
+                const isPhysical = move.cat === "物理";
+                let a = 1, d = 1, stab = 1.0;
+                let hitCount = 1, isMultiHit = !!move.multiHit;
+                
+                if (attacker.ability === "スカイスキン" && moveType === "無") moveType = "飛";
+                if (attacker.ability === "フェアリースキン" && moveType === "無") moveType = "妖";
+
+                if (isMultiHit) {
+                    if (move.multiHit.min === move.multiHit.max) hitCount = move.multiHit.max;
+                    else if (attacker.ability === "スキルリンク") hitCount = move.multiHit.max;
+                    else if (attacker.item === "いかさまダイス") hitCount = Math.random() < 0.5 ? 4 : 5;
+                    else { const r = Math.random(); hitCount = r < 0.35 ? 2 : r < 0.70 ? 3 : r < 0.85 ? 4 : 5; }
+                }
+
+                let currentPower = move.power;
+                if (move.effect === "stored_power") {
+                    let statTotal = 0;
+                    for (let key in attacker.statStages) if (attacker.statStages[key] > 0) statTotal += attacker.statStages[key];
+                    currentPower = 20 + 20 * statTotal;
+                }
+                if (move.name === "ゆきなだれ" && attacker.tookDamageThisTurn) currentPower *= 2;
+                if (move.name === "はたきおとす" && defender.item !== null && !Object.values(megaStoneMap).includes(defender.item)) {
+                    currentPower = Math.floor(currentPower * 1.5);
+                }
+                
+                if (move.effect === "venoshock" && (defender.status === "poison" || defender.status === "bad_poison")) {
+                    currentPower *= 2;
+                }
+                if (move.effect === "last_respects") {
+                    let deadCount = attackerSide === 1 ? playerParty.filter(p => p.hp <= 0).length : enemyParty.filter(p => p.hp <= 0).length;
+                    currentPower += 50 * deadCount;
+                }
+                
+                let isGroundedA = !attacker.types.includes("飛") && attacker.ability !== "ふゆう";
+                let isGroundedD = !defender.types.includes("飛") && defender.ability !== "ふゆう";
+                
+                if (battleState.weather === 'rain') {
+                    if (moveType === '水') currentPower = Math.floor(currentPower * 1.5);
+                    if (moveType === '炎') currentPower = Math.floor(currentPower * 0.5);
+                }
+                if (battleState.weather === 'sun') {
+                    if (moveType === '炎') currentPower = Math.floor(currentPower * 1.5);
+                    if (moveType === '水') currentPower = Math.floor(currentPower * 0.5);
+                }
+
+                if (isGroundedA) {
+                    if (battleState.terrain === 'electric' && moveType === '電') currentPower = Math.floor(currentPower * 1.3);
+                    if (battleState.terrain === 'grassy' && moveType === '草') currentPower = Math.floor(currentPower * 1.3);
+                    if (battleState.terrain === 'psychic' && moveType === '超') currentPower = Math.floor(currentPower * 1.3);
+                }
+                if (battleState.terrain === 'grassy' && move.name === "じしん" && isGroundedD) {
+                    currentPower = Math.floor(currentPower * 0.5);
+                }
+                if (battleState.terrain === 'psychic' && move.priority > 0 && isGroundedD) {
+                    addLog(`${defender.name} は サイコフィールドに 守られている！`);
+                    await waitMs(800);
+                    return { success: false, switchTriggered: false };
+                }
+
+                if (move.effect === "endeavor") {
+                    effectivenessMult = getEffectivenessMultiplier(moveType, move.name, defender.isTera ? defender.types : defender.originalTypes, defender.ability, attacker.ability);
+                    if (effectivenessMult === 0 || attacker.hp >= defender.hp) { addLog(`しかし うまく きまらなかった！`); await waitMs(800); return { success: false, switchTriggered: false }; }
+                    damage = defender.hp - attacker.hp;
+                } else if (move.effect === "fixed_50") {
+                    effectivenessMult = getEffectivenessMultiplier(moveType, move.name, defender.isTera ? defender.types : defender.originalTypes, defender.ability, attacker.ability);
+                    if (effectivenessMult === 0) { addLog(`${defender.name} には こうかがない みたいだ...`); await waitMs(800); return { success: false, switchTriggered: false }; }
+                } else if (move.effect !== "halve_hp") {
+                    if (move.name === "ボディプレス") {
+                        let statDef = getStat(attacker.b, attacker.statStages.b);
+                        if (defender.ability === "てんねん" && attacker.statStages.b > 0) statDef = attacker.b;
+                        if (attacker.volatile.boostEnergy === 'b') statDef = Math.floor(statDef * 1.3);
+                        a = statDef;
+                    } else a = getAtk(attacker, defender, isPhysical, move.name);
+
+                    d = getDef(defender, attacker, isPhysical);
+                    
+                    if (attacker.isTera) stab = moveType === attacker.tera ? (attacker.originalTypes.includes(attacker.tera) ? 2.0 : 1.5) : (attacker.originalTypes.includes(moveType) ? 1.5 : 1.0);
+                    else if (attacker.types.includes(moveType)) stab = attacker.ability === "てきおうりょく" ? 2.0 : 1.5;
+
+                    if (attacker.ability === "スカイスキン" && move.type === "無") stab *= 1.2;
+                    if (attacker.ability === "フェアリースキン" && move.type === "無") stab *= 1.2;
+                    if (attacker.ability === "かたいツメ" && ["フレアドライブ", "げきりん", "アクアブレイク", "じゃれつく", "インファイト", "コメットパンチ", "アイアンヘッド", "バレットパンチ", "とんぼがえり", "すいりゅうれんだ", "ドレインパンチ", "かみなりパンチ", "れいとうパンチ", "たきのぼり", "おんがえし", "ねこだまし", "ボルテッカー"].includes(move.name)) stab *= 1.3;
+                    if (attacker.ability === "すなのちから" && ["地", "岩", "鋼"].includes(moveType)) stab *= 1.3;
+                    if (attacker.ability === "メガランチャー" && ["ハイドロポンプ", "あくのはどう", "りゅうせいぐん", "りゅうのはどう", "はどうだん", "ラスターカノン"].includes(move.name)) stab *= 1.5;
+
+                    if (attacker.ability === "テクニシャン" && currentPower <= 60) stab *= 1.5;
+                    if (attacker.item === "いのちのたま") stab *= 1.3;
+                    
+                    isAlwaysCrit = checkCritHit(move);
+                    if (isAlwaysCrit) stab *= 1.5;
+                    
+                    if (attacker.ability === "すてみ" && ["recoil_33", "フレアドライブ", "ウェーブタックル", "すてみタックル", "ウッドハンマー", "ブレイブバード", "ボルテッカー"].includes(move.name || move.effect)) stab *= 1.2;
+                    if (attacker.hp <= attacker.maxHp / 3) {
+                        if (attacker.ability === "もうか" && moveType === "炎") stab *= 1.5;
+                        if (attacker.ability === "しんりょく" && moveType === "草") stab *= 1.5;
+                        if (attacker.ability === "げきりゅう" && moveType === "水") stab *= 1.5;
+                    }
+
+                    if (move.name === "からげんき" && attacker.status) stab *= 2.0;
+
+                    effectivenessMult = getEffectivenessMultiplier(moveType, move.name, defender.isTera ? defender.types : defender.originalTypes, defender.ability, attacker.ability);
+                    if (effectivenessMult === 0) { addLog(`${defender.name} には こうかがない みたいだ...`); await waitMs(800); return { success: false, switchTriggered: false }; }
+                }
+
+                for (let i = 0; i < hitCount; i++) {
+                    if (defender.hp <= 0) break;
+                    actualHits++;
+                    let damage = 0;
+                    if (move.effect === "endeavor") damage = defender.hp - attacker.hp;
+                    else if (move.effect === "halve_hp") damage = Math.max(1, Math.floor(defender.hp / 2));
+                    else if (move.effect === "fixed_50") damage = 50;
+                    else {
+                        let baseDmg = Math.floor(22 * currentPower * a / d / 50) + 2;
+                        damage = Math.floor(baseDmg * ((85 + Math.floor(Math.random() * 16)) / 100) * stab * effectivenessMult);
+                        if (defender.ability === "マルチスケイル" && defender.hp === defender.maxHp && attacker.ability !== "かたやぶり") damage = Math.floor(damage * 0.5);
+                    }
+
+                    if (defender.ability === "ばけのかわ" && !defender.volatile.disguiseBusted && attacker.ability !== "かたやぶり") {
+                        damage = 0; defender.volatile.disguiseBusted = true; isDisguiseBusted = true;
+                        const bustDmg = Math.floor(defender.maxHp / 8); defender.hp -= bustDmg;
+                        showDamageEffect(attackerSide === 2 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, bustDmg); await waitMs(500);
+                    } else {
+                        damage = Math.max(1, damage);
+                        if (defender.item === "きあいのタスキ" && defender.hp === defender.maxHp && damage >= defender.hp) { damage = defender.hp - 1; defender.item = null; sashActivated = true; }
+                        else if (defender.ability === "がんじょう" && defender.hp === defender.maxHp && damage >= defender.hp && attacker.ability !== "かたやぶり") { damage = defender.hp - 1; sturdyActivated = true; }
+
+                        defender.hp -= damage; totalDamage += damage; defender.tookDamageThisTurn = true;
+                        showDamageEffect(attackerSide === 2 ? els.enemyHpBar.parentElement : els.playerHpBar.parentElement, damage);
+                        
+                        if (defender.ability === "じきゅうりょく" && isPhysical && defender.hp > 0) {
+                            await applyStatChange(defender, 'b', 1, isAmanojakuD, null, attacker.ability);
+                        }
+                        
+                        updateUI();
+                        await waitMs(hitCount > 1 ? 400 : 200);
+                    }
+                }
+
+                let isFainted = defender.hp <= 0;
+                if (isFainted) defender.hp = 0;
+
+                if (isDisguiseBusted) { addLog(`${defender.name} の ばけのかわ が はがれた！`); await waitMs(600); }
+                if (sashActivated) { addLog(`${defender.name} は きあいのタスキ で もちこたえた！`); await waitMs(600); } 
+                else if (sturdyActivated) { addLog(`${defender.name} は がんじょう で たえた！`); await waitMs(600); }
+
+                if (isMultiHit && actualHits > 1) { addLog(`${actualHits}かい あたった！`); await waitMs(600); }
+
+                if (totalDamage > 0) {
+                    if (isAlwaysCrit) { addLog("きゅうしょに あたった！"); await waitMs(600); }
+                    if (effectivenessMult > 1) { 
+                        addLog("こうかは ばつぐんだ！"); await waitMs(600); 
+                        if (!isFainted && defender.item === "じゃくてんほけん") {
+                            defender.item = null; 
+                            addLog(`${defender.name} の じゃくてんほけん が はつどう！`); 
+                            await applyStatChange(defender, 'a', 2, isAmanojakuD, null, attacker.ability);
+                            await applyStatChange(defender, 'c', 2, isAmanojakuD, null, attacker.ability);
+                        }
+                    } else if (effectivenessMult < 1) { addLog("こうかは いまひとつの ようだ..."); await waitMs(600); }
+                    
+                    if (move.effect === "salt_cure" && !isFainted && !defender.volatile.saltCure) { defender.volatile.saltCure = true; addLog(`${defender.name} は しおづけに された！`); await waitMs(600); }
+                    if (move.effect === "tri_status" && !isFainted && !defender.status && Math.random() < 0.2) {
+                        await inflictStatus(defender, Math.random() < 0.5 ? "paralysis" : "burn", Math.random() < 0.5 ? `${defender.name} は まひして わざがでにくくなった！` : `${defender.name} は やけどを おった！`);
+                    }
+                    if (move.effect === "fatal_claw" && !isFainted && !defender.status && Math.random() < 0.5) {
+                        const r = Math.random();
+                        if (r < 0.33) await inflictStatus(defender, "poison", `${defender.name} は どくを あびた！`);
+                        else if (r < 0.66) await inflictStatus(defender, "paralysis", `${defender.name} は まひして わざがでにくくなった！`);
+                        else await inflictStatus(defender, "sleep", `${defender.name} は ねむってしまった！`);
+                    }
+                    if (move.effect === "flinch_20" && !isFainted && Math.random() < 0.2) { defender.volatile.flinch = true; }
+                    if (move.effect === "fake_out" && !isFainted) { defender.volatile.flinch = true; }
+                    if (move.effect === "stealthRock_attack") {
+                        const targetField = attackerSide === 1 ? enemyField : playerField;
+                        if (!targetField.stealthRock) { targetField.stealthRock = true; addLog(`あいての まわりに とがったいわが うかんだ！`); await waitMs(600); }
+                    }
+                    
+                    if (move.name === "はたきおとす" && !isFainted && defender.item !== null && !Object.values(megaStoneMap).includes(defender.item)) {
+                        addLog(`${attacker.name} は ${defender.name} の ${defender.item} を はたきおとした！`); await waitMs(600);
+                        defender.item = null;
+                        defender.lockedMove = null;
+                        updateUI();
+                    }
+                    
+                    if (move.effect === "c_down_1") { await applyStatChange(attacker, 'c', -1, isAmanojakuA, attacker.item, attacker.ability); }
+                    else if (move.effect === "c_down_2") { await applyStatChange(attacker, 'c', -2, isAmanojakuA, attacker.item, attacker.ability); }
+                    else if (move.effect === "c_up_1") { await applyStatChange(attacker, 'c', 1, isAmanojakuA, attacker.item, attacker.ability); }
+                    else if (move.effect === "a_up_1_20" && Math.random() < 0.2) { await applyStatChange(attacker, 'a', 1, isAmanojakuA, attacker.item, attacker.ability); }
+                    else if (move.effect === "heal_drain") { const heal = Math.floor(totalDamage / 2); attacker.hp = Math.min(attacker.maxHp, attacker.hp + heal); showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, heal, true); addLog(`${attacker.name}の たいりょくが かいふくした！`); await waitMs(600); }
+                    else if (move.effect === "s_down_1_enemy" && !isFainted) { await applyStatChange(defender, 's', -1, isAmanojakuD, null, attacker.ability); }
+                    else if (move.effect === "d_down_1_enemy_10" && !isFainted && Math.random() < 0.1) { await applyStatChange(defender, 'd', -1, isAmanojakuD, null, attacker.ability); }
+                    else if (move.effect === "c_down_1_enemy" && !isFainted) { await applyStatChange(defender, 'c', -1, isAmanojakuD, null, attacker.ability); }
+                    else if (move.effect === "d_down_2_enemy" && !isFainted) { await applyStatChange(defender, 'd', -2, isAmanojakuD, null, attacker.ability); }
+                    else if (move.effect === "ab_down_1") { 
+                        await applyStatChange(attacker, 'a', -1, isAmanojakuA, attacker.item, attacker.ability);
+                        await applyStatChange(attacker, 'b', -1, isAmanojakuA, attacker.item, attacker.ability);
+                    }
+                    else if (move.effect === "recoil_33" && attacker.ability !== "マジックガード") { let recoil = Math.max(1, Math.floor(totalDamage / 3)); if (recoil >= attacker.hp) recoil = attacker.hp; attacker.hp -= recoil; showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, recoil); addLog(`${attacker.name} は はんどうの ダメージを うけた！`); await waitMs(600); }
+                    else if (move.effect === "paralyze_100" && !isFainted && !defender.status && !defender.types.includes("電") && !defender.types.includes("地")) { await inflictStatus(defender, "paralysis", `${defender.name} は まひして わざがでにくくなった！`); }
+                    else if (move.effect === "paralyze_30" && !isFainted && Math.random() < 0.3 && !defender.status && !defender.types.includes("電") && !defender.types.includes("地")) { await inflictStatus(defender, "paralysis", `${defender.name} は まひして わざがでにくくなった！`); }
+                }
+
+                if (moveType === "炎" && defender.ability === "ねつこうかん" && totalDamage > 0 && !isFainted) { 
+                    await applyStatChange(defender, 'a', 1, isAmanojakuD, null, attacker.ability);
+                }
+                
+                if (isPhysical && defender.item === "ゴツゴツメット" && attacker.hp > 0 && totalDamage > 0 && attacker.ability !== "マジックガード" && move.name && !move.name.includes("パンチ")) {
+                    let recoil = Math.min(attacker.hp, Math.floor((attacker.maxHp / 6) * actualHits)); attacker.hp -= recoil;
+                    showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, recoil); addLog(`${attacker.name} は ゴツゴツメット で ダメージをうけた！`); await waitMs(600);
+                }
+                if (isPhysical && defender.ability === "さめはだ" && attacker.hp > 0 && totalDamage > 0 && attacker.ability !== "マジックガード") {
+                    let recoil = Math.min(attacker.hp, Math.floor((attacker.maxHp / 8) * actualHits)); attacker.hp -= recoil;
+                    showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, recoil); addLog(`${attacker.name} は さめはだ で ダメージをうけた！`); await waitMs(600);
+                }
+                if (isPhysical && defender.ability === "てつのトゲ" && attacker.hp > 0 && totalDamage > 0 && attacker.ability !== "マジックガード") {
+                    let recoil = Math.min(attacker.hp, Math.floor((attacker.maxHp / 8) * actualHits)); attacker.hp -= recoil;
+                    showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, recoil); addLog(`${attacker.name} は てつのトゲ で ダメージをうけた！`); await waitMs(600);
+                }
+                if (isPhysical && defender.ability === "ほのおのからだ" && attacker.hp > 0 && totalDamage > 0 && !attacker.status && !attacker.types.includes("炎") && Math.random() < 0.3) {
+                    await inflictStatus(attacker, "burn", `${attacker.name} は ほのおのからだ で やけどを おった！`);
+                }
+                if (isContact && attacker.ability === "どくしゅ" && !isFainted && totalDamage > 0 && !defender.status && Math.random() < 0.3) {
+                    await inflictStatus(defender, "poison", `${defender.name} は どくしゅ で どくを あびた！`);
+                }
+                if (isPhysical && defender.ability === "せいでんき" && attacker.hp > 0 && totalDamage > 0 && !attacker.status && !attacker.types.includes("電") && !attacker.types.includes("地") && attacker.ability !== "マジックガード") {
+                    if (Math.random() < (1 - Math.pow(0.7, actualHits))) await inflictStatus(attacker, "paralysis", `${attacker.name} は せいでんき で まひしてしまった！`);
+                }
+                if (attacker.item === "いのちのたま" && attacker.hp > 0 && totalDamage > 0 && attacker.ability !== "マジックガード") {
+                    let recoil = Math.min(attacker.hp, Math.floor(attacker.maxHp / 10)); attacker.hp -= recoil;
+                    showDamageEffect(attackerSide === 1 ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, recoil); addLog(`${attacker.name} の いのちが けずられる！`); await waitMs(600);
+                }
+                if (!isFainted && defender.hp > 0 && defender.hp <= defender.maxHp / 2 && defender.item === "オボンのみ") {
+                    let heal = Math.floor(defender.maxHp / 4); defender.hp = Math.min(defender.maxHp, defender.hp + heal); defender.item = null;
+                    showDamageEffect(attackerSide === 2 ? els.enemyHpBar.parentElement : els.playerHpBar.parentElement, heal, true); addLog(`${defender.name} は オボンのみ で かいふくした！`); await waitMs(600);
+                }
+
+                if (isFainted || defender.hp <= 0) {
+                    defender.hp = 0; updateUI(); addLog(`${defender.name} は たおれた！`); await waitMs(1000);
+                    return { success: true, switchTriggered: move.effect === "switch" || move.effect === "parting_shot" || move.effect === "baton_pass", isBaton: move.effect === "baton_pass" };
+                }
+
+                if (move.effect === "switch") return { success: true, switchTriggered: true };
+            }
+
+            updateUI(); await waitMs(500); return { success: true, switchTriggered: false };
+        }
+
+        async function processGlobalTurnEnd() {
+            if (battleState.weatherTurns > 0) {
+                battleState.weatherTurns--;
+                if (battleState.weatherTurns === 0) {
+                    battleState.weather = null;
+                    addLog("天候が 元に 戻った。"); await waitMs(600);
+                } else if (battleState.weather === 'sandstorm') {
+                    addLog("すなあらしが ふきあれる！"); await waitMs(600);
+                    for (let p of [player, currentEnemy]) {
+                        if (p && p.hp > 0 && !p.types.includes("岩") && !p.types.includes("地") && !p.types.includes("鋼") && p.ability !== "すなかき" && p.ability !== "すなおこし") {
+                            let dmg = Math.max(1, Math.floor(p.maxHp / 16));
+                            p.hp -= dmg;
+                            showDamageEffect(p === player ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, dmg);
+                            addLog(`${p.name} は すなあらしの ダメージを うけた！`); await waitMs(600);
+                        }
+                    }
+                }
+            }
+            if (battleState.trickRoomTurns > 0) {
+                battleState.trickRoomTurns--;
+                if (battleState.trickRoomTurns === 0) {
+                    addLog("ゆがんだ じくうが もとにもどった！"); await waitMs(600);
+                }
+            }
+            if (battleState.terrainTurns > 0) {
+                battleState.terrainTurns--;
+                if (battleState.terrainTurns === 0) {
+                    battleState.terrain = null;
+                    addLog("足元の フィールドが 消え去った。"); await waitMs(600);
+                } else if (battleState.terrain === 'grassy') {
+                    for (let p of [player, currentEnemy]) {
+                        let isGrounded = p && !p.types.includes("飛") && p.ability !== "ふゆう";
+                        if (p && p.hp > 0 && p.hp < p.maxHp && isGrounded) {
+                            let heal = Math.floor(p.maxHp / 16);
+                            p.hp = Math.min(p.maxHp, p.hp + heal);
+                            showDamageEffect(p === player ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, heal, true);
+                            addLog(`${p.name} は グラスフィールドで 回復した！`); await waitMs(600);
+                        }
+                    }
+                }
+            }
+            updateUI();
+        }
+
+        function checkYawn(p) {
+            if (p.volatile.yawn > 0 && !p.status) {
+                p.volatile.yawn--;
+                if (p.volatile.yawn === 0) {
+                    if (p.ability === "きよめのしお" || p.ability === "やるき") { addLog(`${p.name} には ねむりが きかない！`); } 
+                    else { p.status = 'sleep'; p.sleepCount = 2 + Math.floor(Math.random() * 3); addLog(`${p.name} は ねむってしまった！`); return true; }
+                }
+            }
+            return false;
+        }
+
+        async function applyEndOfTurnEffects(p, isPlayer) {
+            if (p.hp <= 0) return;
+            
+            p.volatile.protect = false;
+            p.volatile.flinch = false;
+            p.turnsInBattle++;
+
+            if (p.ability === "かそく" && p.statStages.s < 6 && p.statStages.s > -6) {
+                await applyStatChange(p, 's', 1, p.ability === "あまのじゃく", p.item, p.ability);
+            }
+
+            if (p.volatile.saltCure) { let dmg = Math.floor(p.maxHp / 8); if (p.types.includes("水") || p.types.includes("鋼")) dmg = Math.floor(p.maxHp / 4); p.hp -= dmg; showDamageEffect(isPlayer ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, dmg); addLog(`${p.name} は しおづけの ダメージをうけている！`); await waitMs(600); }
+            if (p.hp <= 0) return;
+            if (p.hp < p.maxHp && (p.item === "たべのこし" || (p.item === "くろいヘドロ" && p.types.includes("毒")))) { 
+                let heal = Math.floor(p.maxHp / 16); p.hp = Math.min(p.maxHp, p.hp + heal); showDamageEffect(isPlayer ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, heal, true); addLog(`${p.name} は ${p.item} で すこし かいふくした！`); await waitMs(600); 
+            } else if (p.item === "くろいヘドロ" && !p.types.includes("毒")) {
+                let dmg = Math.max(1, Math.floor(p.maxHp / 8)); p.hp -= dmg; showDamageEffect(isPlayer ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, dmg); addLog(`${p.name} は くろいヘドロ で ダメージをうけた！`); await waitMs(600);
+            }
+
+            if (p.hp <= 0) return;
+            if (p.item === "かえんだま" && !p.status) { await inflictStatus(p, "burn", `${p.name} は かえんだま で やけどを おった！`); await waitMs(600); }
+            
+            if (p.hp > 0 && (p.status === 'burn' || p.status === 'poison')) { 
+                let dmg = Math.max(1, Math.floor(p.maxHp / 16)); 
+                if (p.status === 'poison') dmg = Math.max(1, Math.floor(p.maxHp / 8));
+                p.hp -= dmg; showDamageEffect(isPlayer ? els.playerHpBar.parentElement : els.enemyHpBar.parentElement, dmg); 
+                addLog(`${p.name} は ${p.status === 'burn' ? 'やけど' : 'どく'}の ダメージを うけている！`); await waitMs(600); 
+            }
+        }
+
+        async function checkFainted() {
+            let result = { gameEnd: false };
+            if (player.hp <= 0) {
+                if (playerParty.filter(p => p.hp > 0).length === 0) { addLog(gameMode === 'pvp' ? "1Pの ポケモンが すべて たおれた..." : "てもちの ポケモンが すべて たおれた..."); result.gameEnd = true; } 
+                else { const targetIdx = await openSwitchModalAsync(false, 1); await executeUturnSwitch(targetIdx, 1); }
+            }
+            if (currentEnemy.hp <= 0) {
+                if (enemyParty.filter(p => p.hp > 0).length === 0) { addLog(gameMode === 'pve' ? "あいての ポケモンを すべて たおした！" : "2Pの ポケモンが すべて たおれた..."); result.gameEnd = true; } 
+                else {
+                    if (gameMode === 'pvp') { const targetIdx = await openSwitchModalAsync(false, 2); await executeUturnSwitch(targetIdx, 2); } 
+                    else await executeUturnSwitch(enemyParty.findIndex(p => p.hp > 0), 2);
+                }
+            }
+            if (result.gameEnd) { 
+                addLog("しょうぶ あり！ 🏆"); 
+                isProcessing = false;
+                if (els.btnRestart) els.btnRestart.classList.remove('hidden'); 
+                if (els.btnRematch) els.btnRematch.classList.remove('hidden'); 
+            }
+            return result;
+        }
+
+        async function handleAction(attacker, defender, action, isPlayer) {
+            const attackerSide = isPlayer ? 1 : 2;
+            if (action.type === 'move') {
+                const moveName = isPlayer ? attacker.moves[action.data] : (gameMode === 'pvp' ? attacker.moves[action.data] : action.data);
+                const move = moveData[moveName];
+                if (!move) { addLog(`${attacker.name} は 技をだせなかった！`); await waitMs(800); return { abortTurn: false }; }
+
+                const res = await performAction(attacker, defender, move, attackerSide);
+                const faintRes = await checkFainted();
+                if (faintRes.gameEnd) return { abortTurn: true };
+                
+                if (res.switchTriggered && attacker.hp > 0) {
+                    const aliveParty = isPlayer ? playerParty.filter((p, i) => p.hp > 0 && i !== currentPlayerIndex) : enemyParty.filter((p, i) => p.hp > 0 && i !== currentEnemyIndex);
+                    if (aliveParty.length > 0) {
+                        if (isPlayer || gameMode === 'pvp') { 
+                            const targetIdx = await openSwitchModalAsync(true, attackerSide); 
+                            await executeUturnSwitch(targetIdx, attackerSide, res.isBaton); 
+                        } 
+                        else await executeUturnSwitch(enemyParty.findIndex((p, i) => p.hp > 0 && i !== currentEnemyIndex), 2, res.isBaton);
+                    }
+                }
+            } else if (action.type === 'switch') await executeUturnSwitch(action.data, attackerSide);
+            return { abortTurn: false };
+        }
+
+        function rematch() {
+            if (isProcessing) return;
+            els.screenBattle.classList.add('hidden');
+            els.btnRestart.classList.add('hidden');
+            els.btnRematch.classList.add('hidden');
+            
+            currentPlayerIndex = 0; currentEnemyIndex = 0;
+            playerPartyTeraUsed = false; enemyPartyTeraUsed = false;
+            playerPartyMegaUsed = false; enemyPartyMegaUsed = false;
+            p1TeraChecked = false; p2TeraChecked = false;
+            p1MegaChecked = false; p2MegaChecked = false;
+            player = null; currentEnemy = null; 
+            playerField = { stealthRock: false }; 
+            enemyField = { stealthRock: false };
+            battleState = { weather: null, weatherTurns: 0, terrain: null, terrainTurns: 0, trickRoomTurns: 0 };
+            currentTurnPlayer = 1; p1Action = null; p2Action = null; resolveSwitch = null;
+            els.logContainer.innerHTML = '';
+            
+            if (gameMode === 'pve') {
+                p2SelectedParty = generateCPUParty();
+            }
+            
+            startShowdownPhase();
+        }
+
+        function returnToTitle() {
+            selectedParty = []; playerParty = []; enemyParty = []; currentPlayerIndex = 0; currentEnemyIndex = 0; isProcessing = false;
+            p1SelectedParty = []; p2SelectedParty = [];
+            p1FinalSelected = []; p2FinalSelected = [];
+            playerPartyTeraUsed = false; enemyPartyTeraUsed = false; p1TeraChecked = false; p2TeraChecked = false;
+            playerPartyMegaUsed = false; enemyPartyMegaUsed = false; p1MegaChecked = false; p2MegaChecked = false;
+            player = null; currentEnemy = null; playerField = { stealthRock: false }; enemyField = { stealthRock: false };
+            battleState = { weather: null, weatherTurns: 0, terrain: null, terrainTurns: 0, trickRoomTurns: 0 };
+            gameMode = 'pve'; currentTurnPlayer = 1; p1Action = null; p2Action = null; selectingPlayer = 1; resolveSwitch = null;
+            
+            els.screenMode?.classList.remove('hidden'); 
+            els.screenSelect?.classList.add('hidden'); 
+            els.screenShowdown?.classList.add('hidden'); 
+            els.screenBattle?.classList.add('hidden'); 
+            els.btnRestart?.classList.add('hidden'); 
+            els.btnRematch?.classList.add('hidden'); 
+            els.switchModal?.classList.add('hidden');
+            document.getElementById('confirm-modal')?.classList.add('hidden');
+            if (els.logContainer) els.logContainer.innerHTML = '';
+        }
+
+        function returnToTitleWithConfirm() { 
+            if (isProcessing) return; 
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        function confirmReturnToTitle(choice) {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            if(choice) returnToTitle();
+        }
+
+        function executeTurnInput(actionType, actionData) {
+            if (isProcessing) return;
+            if (gameMode === 'pve') {
+                p1Action = { type: actionType, data: actionData }; 
+                p1TeraChecked = els.chkTera.checked; els.chkTera.checked = false;
+                p1MegaChecked = els.chkMega.checked; els.chkMega.checked = false;
+                
+                let availableMoves = currentEnemy.moves.filter(m => {
+                    let move = moveData[m];
+                    if (!move) return false;
+                    if (currentEnemy.volatile.taunt > 0 && move.cat === "変化") return false;
+                    if (currentEnemy.item === "とつげきチョッキ" && move.cat === "変化") return false;
+                    if (currentEnemy.lockedMove && currentEnemy.lockedMove !== m) return false;
+                    
+                    if (move.effect === "stealthRock" && playerField.stealthRock) return false;
+                    if (move.effect === "trick_room" && battleState.trickRoomTurns > 0) return false;
+                    if (move.effect === "heal_50" && currentEnemy.hp === currentEnemy.maxHp) return false;
+                    if (move.effect === "protect" && currentEnemy.consecutiveProtect > 0) return false;
+                    if (move.effect === "fake_out" && !currentEnemy.firstTurn) return false;
+                    if (move.cat === "変化" && ["paralyze", "paralyze_100", "paralyze_30", "burn", "poison", "sleep", "yawn"].includes(move.effect)) {
+                        if (player.status || player.volatile.yawn > 0) return false;
+                        if (move.effect === "burn" && (player.types.includes("炎") || player.ability === "ねつこうかん")) return false;
+                        if ((move.effect === "paralyze" || move.effect === "paralyze_100" || move.effect === "paralyze_30") && (player.types.includes("電") || player.types.includes("地"))) return false;
+                        if (move.effect === "poison" && (player.types.includes("毒") || player.types.includes("鋼"))) return false;
+                        if (move.effect === "sleep" && player.types.includes("草")) return false; 
+                    }
+                    if (move.effect === "haze") {
+                        let hasBoosts = false;
+                        for(let k in currentEnemy.statStages) if(currentEnemy.statStages[k] < 0) hasBoosts = true;
+                        for(let k in player.statStages) if(player.statStages[k] > 0) hasBoosts = true;
+                        if(!hasBoosts) return false;
+                    }
+                    return true;
+                });
+                
+                if(availableMoves.length === 0) availableMoves = currentEnemy.moves.filter(m => moveData[m] && !(currentEnemy.volatile.taunt > 0 && moveData[m].cat === "変化") && !(currentEnemy.item === "とつげきチョッキ" && moveData[m].cat === "変化") && (!currentEnemy.lockedMove || currentEnemy.lockedMove === m));
+                if(availableMoves.length === 0) availableMoves = [currentEnemy.moves[0]]; 
+
+                // AIの技選択を賢くする（スコアベース）
+                let bestMove = availableMoves[0];
+                let maxScore = -9999;
+
+                availableMoves.forEach(mName => {
+                    let move = moveData[mName];
+                    let score = 0;
+                    if (move.cat === "変化") {
+                        score = 20; // 変化技の基本スコア
+                        if (move.effect === "stealthRock") score = 60;
+                        if (move.effect === "sleep") score = 70;
+                        if (move.effect === "yawn") score = 60;
+                        if (move.effect === "paralyze" || move.effect === "burn" || move.effect === "poison") score = 50;
+                        if (["sdance", "ddance", "c_up_2", "qdance", "shell_smash", "b_up_2", "ab_up_1"].includes(move.effect)) score = 55;
+                        if (move.effect === "heal_50") {
+                            if (currentEnemy.hp <= currentEnemy.maxHp / 2) score = 80; // ピンチなら回復優先
+                            else score = 0; // まだ余裕があれば後回し
+                        }
+                    } else {
+                        // 攻撃技のスコア計算（簡略化された威力 × 相性 × タイプ一致）
+                        let moveType = move.type;
+                        if (currentEnemy.ability === "スカイスキン" && moveType === "無") moveType = "飛";
+                        if (currentEnemy.ability === "フェアリースキン" && moveType === "無") moveType = "妖";
+                        
+                        let eff = getEffectivenessMultiplier(moveType, move.name, player.isTera ? player.types : player.originalTypes, player.ability, currentEnemy.ability);
+                        let stab = (currentEnemy.isTera ? currentEnemy.tera === moveType : currentEnemy.types.includes(moveType)) ? 1.5 : 1;
+                        score = move.power * eff * stab;
+                        
+                        if (eff === 0) score = -1; // 無効技は選ばない
+                    }
+                    
+                    if (score > maxScore) {
+                        maxScore = score;
+                        bestMove = mName;
+                    } else if (score === maxScore && Math.random() < 0.5) {
+                        bestMove = mName;
+                    }
+                });
+
+                p2Action = { type: 'move', data: bestMove };
+                p2TeraChecked = (!enemyPartyTeraUsed && currentEnemy.hp < currentEnemy.maxHp * 0.5 && Math.random() < 0.5);
+                
+                let eBaseName = currentEnemy.name.split('(')[0];
+                let eMegaKey = currentEnemy.name;
+                if (!megaStoneMap[eMegaKey]) eMegaKey = eBaseName;
+                p2MegaChecked = (!enemyPartyMegaUsed && currentEnemy.mega && currentEnemy.item === megaStoneMap[eMegaKey]);
+                resolveTurn();
+            } else {
+                if (currentTurnPlayer === 1) { 
+                    p1Action = { type: actionType, data: actionData }; 
+                    p1TeraChecked = els.chkTera.checked; els.chkTera.checked = false; 
+                    p1MegaChecked = els.chkMega.checked; els.chkMega.checked = false;
+                    currentTurnPlayer = 2; updateUI(); 
+                } 
+                else { 
+                    p2Action = { type: actionType, data: actionData }; 
+                    p2TeraChecked = els.chkTera.checked; els.chkTera.checked = false; 
+                    p2MegaChecked = els.chkMega.checked; els.chkMega.checked = false;
+                    resolveTurn(); 
+                }
+            }
+        }
+
+        async function resolveTurn() {
+            isProcessing = true; updateUI();
+            
+            if (player) player.tookDamageThisTurn = false;
+            if (currentEnemy) currentEnemy.tookDamageThisTurn = false;
+
+            if (p1MegaChecked && !playerPartyMegaUsed && player.mega) { playerPartyMegaUsed = true; player.isMega = true; Object.assign(player, player.mega); addLog(`${player.name.replace('メガ', '').split('(')[0]} の メガシンカ！`); await waitMs(1200); updateUI(); }
+            if (p2MegaChecked && !enemyPartyMegaUsed && currentEnemy.mega) { enemyPartyMegaUsed = true; currentEnemy.isMega = true; Object.assign(currentEnemy, currentEnemy.mega); addLog(`${gameMode === 'pvp' ? '2P' : 'あいて'}の ${currentEnemy.name.replace('メガ', '').split('(')[0]} の メガシンカ！`); await waitMs(1200); updateUI(); }
+
+            if (p1TeraChecked && !playerPartyTeraUsed && p1Action.type === 'move') { playerPartyTeraUsed = true; player.isTera = true; player.types = [player.tera]; addLog(`${player.name} は テラスタルして ${player.tera}タイプに なった！`); await waitMs(1200); updateUI(); }
+            if (p2TeraChecked && !enemyPartyTeraUsed && p2Action.type === 'move') { enemyPartyTeraUsed = true; currentEnemy.isTera = true; currentEnemy.types = [currentEnemy.tera]; addLog(`${gameMode === 'pvp' ? '2Pの' : 'あいての'} ${currentEnemy.name} は テラスタルして ${currentEnemy.tera}タイプに なった！`); await waitMs(1200); updateUI(); }
+
+            let initialPlayerIndex = currentPlayerIndex, initialEnemyIndex = currentEnemyIndex;
+            let pMove = p1Action.type === 'move' ? moveData[player.moves[p1Action.data]] : null;
+            let eMove = p2Action.type === 'move' ? moveData[gameMode === 'pve' ? p2Action.data : currentEnemy.moves[p2Action.data]] : null;
+
+            let pPriority = pMove ? pMove.priority : -1; let ePriority = eMove ? eMove.priority : -1;
+            if (pMove && pMove.cat === "変化" && player.ability === "いたずらごころ") pPriority++;
+            if (eMove && eMove.cat === "変化" && currentEnemy.ability === "いたずらごころ") ePriority++;
+
+            let isPlayerFirst = true;
+            if (p1Action.type === 'switch' && p2Action.type !== 'switch') isPlayerFirst = true; 
+            else if (p2Action.type === 'switch' && p1Action.type !== 'switch') isPlayerFirst = false;
+            else if (ePriority > pPriority) isPlayerFirst = false;
+            else if (ePriority === pPriority) {
+                let pSpeed = getSpeed(player);
+                let eSpeed = getSpeed(currentEnemy);
+                if (battleState.trickRoomTurns > 0) {
+                    if (eSpeed < pSpeed || (eSpeed === pSpeed && Math.random() < 0.5)) isPlayerFirst = false;
+                } else {
+                    if (eSpeed > pSpeed || (eSpeed === pSpeed && Math.random() < 0.5)) isPlayerFirst = false;
+                }
+            }
+
+            if (isPlayerFirst) {
+                if ((await handleAction(player, currentEnemy, p1Action, true)).abortTurn) return;
+                if (currentEnemy.hp > 0 && player.hp > 0 && currentEnemyIndex === initialEnemyIndex) { if ((await handleAction(currentEnemy, player, p2Action, false)).abortTurn) return; }
+            } else {
+                if ((await handleAction(currentEnemy, player, p2Action, false)).abortTurn) return;
+                if (player.hp > 0 && currentEnemy.hp > 0 && currentPlayerIndex === initialPlayerIndex) { if ((await handleAction(player, currentEnemy, p1Action, true)).abortTurn) return; }
+            }
+
+            if (player.volatile.taunt > 0) player.volatile.taunt--;
+            if (currentEnemy.volatile.taunt > 0) currentEnemy.volatile.taunt--;
+            
+            let statusChanged = false;
+            if (player.hp > 0 && checkYawn(player)) statusChanged = true;
+            if (currentEnemy.hp > 0 && checkYawn(currentEnemy)) statusChanged = true;
+            if(statusChanged) { updateUI(); await waitMs(500); }
+
+            await applyEndOfTurnEffects(player, true); await applyEndOfTurnEffects(currentEnemy, false);
+            
+            await processGlobalTurnEnd();
+            
+            if ((await checkFainted()).gameEnd) return;
+
+            p1Action = null; p2Action = null; currentTurnPlayer = 1; isProcessing = false; updateUI();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initEls();
+            returnToTitle();
+        });
+    </script>
+</body>
+</html>
